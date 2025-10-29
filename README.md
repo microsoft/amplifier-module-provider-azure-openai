@@ -64,7 +64,7 @@ export AZURE_USE_DEFAULT_CREDENTIAL="true"
 
 # Optional: Configure API version and defaults
 export AZURE_OPENAI_API_VERSION="2024-10-01-preview"
-export AZURE_OPENAI_DEFAULT_MODEL="gpt-4"
+export AZURE_OPENAI_DEFAULT_MODEL="gpt-5"
 
 # Run amplifier - no config file needed!
 amplifier run
@@ -79,7 +79,7 @@ export AZURE_OPENAI_API_KEY="your-api-key-here"
 
 # Optional: Configure API version and defaults
 export AZURE_OPENAI_API_VERSION="2024-10-01-preview"
-export AZURE_OPENAI_DEFAULT_MODEL="gpt-4"
+export AZURE_OPENAI_DEFAULT_MODEL="gpt-5"
 
 # Run amplifier
 amplifier run
@@ -106,7 +106,7 @@ name = "azure-openai"
 [providers.config]
 azure_endpoint = "https://myresource.openai.azure.com"
 api_key = "your-api-key-here"
-default_model = "gpt-4"
+default_model = "gpt-5"
 ```
 
 ### Advanced Configuration
@@ -134,15 +134,15 @@ api_version = "2024-10-01-preview"
 
 # Optional: Map model names to Azure deployment names
 [providers.config.deployment_mapping]
-"gpt-4" = "my-gpt4-deployment"
-"gpt-4-turbo" = "my-turbo-deployment"
-"gpt-3.5-turbo" = "my-35-deployment"
+"gpt-5" = "my-gpt5-deployment"
+"gpt-5" = "my-gpt5-deployment"
+"gpt-5-mini" = "my-mini-deployment"
 
 # Optional: Default deployment when no mapping matches
 default_deployment = "my-default-deployment"
 
 # Optional: Default model for requests
-default_model = "gpt-4"
+default_model = "gpt-5"
 
 # Optional: Generation parameters
 max_tokens = 4096
@@ -163,15 +163,15 @@ Azure OpenAI uses deployment names instead of model names. This module provides 
 
 ```toml
 [providers.config.deployment_mapping]
-"gpt-4" = "production-gpt4"
-"gpt-3.5-turbo" = "fast-gpt35"
+"gpt-5" = "production-gpt5"
+"gpt-5-mini" = "fast-mini"
 
 default_deployment = "fallback-deployment"
 ```
 
-- Request for "gpt-4" → Uses "production-gpt4"
-- Request for "gpt-3.5-turbo" → Uses "fast-gpt35"
-- Request for "claude-4" → Uses "fallback-deployment" (not in mapping)
+- Request for "gpt-5" → Uses "production-gpt5"
+- Request for "gpt-5-mini" → Uses "fast-mini"
+- Request for "claude-opus-4-1" → Uses "fallback-deployment" (not in mapping)
 - Request for "my-custom-deploy" → Uses "my-custom-deploy" (if no default set)
 
 ## Authentication Options
@@ -286,7 +286,7 @@ The module supports these environment variables as fallbacks:
 ### Deployment & Model Configuration
 
 - `AZURE_OPENAI_DEFAULT_DEPLOYMENT` - Default deployment name to use when no mapping matches
-- `AZURE_OPENAI_DEFAULT_MODEL` - Default model to use for requests (defaults to `gpt-4`)
+- `AZURE_OPENAI_DEFAULT_MODEL` - Default model to use for requests (defaults to `gpt-5`)
 
 ### Generation Parameters
 
@@ -304,7 +304,7 @@ Once configured, the Azure OpenAI provider works seamlessly with Amplifier:
 response = await session.send_message(
     "Hello, how are you?",
     provider="azure-openai",
-    model="gpt-4"  # Will be mapped to your Azure deployment
+    model="gpt-5"  # Will be mapped to your Azure deployment
 )
 ```
 

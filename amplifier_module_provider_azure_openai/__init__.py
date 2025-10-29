@@ -159,7 +159,7 @@ class AzureOpenAIProvider:
         self.coordinator = coordinator
 
         # Configuration (same as OpenAI provider)
-        self.default_model = self.config.get("default_model") or self.config.get("default_deployment", "gpt-4o")
+        self.default_model = self.config.get("default_model") or self.config.get("default_deployment", "gpt-5")
         self.max_tokens = self.config.get("max_tokens", 4096)
         self.temperature = self.config.get("temperature", None)  # None = not sent
         self.reasoning = self.config.get("reasoning", None)  # None = not sent
