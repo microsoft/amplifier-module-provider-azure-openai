@@ -9,18 +9,18 @@ This module enables Amplifier to use Azure OpenAI Service deployments for langua
 ## Features
 
 - **Azure OpenAI Service Integration**: Connect to your Azure-hosted OpenAI deployments
+- **Responses API Compatibility**: Routes requests through Azure's Responses API endpoint
 - **Deployment Name Mapping**: Map model names to Azure deployment names
 - **Multiple Authentication Methods**: Support for API keys, Azure AD tokens, and Managed Identity
-- **Compatible with OpenAI API**: Uses the same chat completions format
 - **Tool Calling Support**: Full support for function calling/tools
 - **Managed Identity Support**: Seamless authentication in Azure environments
 
 ### Tool Calling
 
-The provider now recognises Responses API `function_call` / `tool_call`
+The provider recognises Responses API `function_call` / `tool_call`
 payloads, decodes any JSON-encoded arguments, and forwards standard
 `ToolCall` objects to Amplifier. No additional configuration is needed—tools
-declared in your configuration or profiles will run as soon as the model
+declared in your configuration or profiles run as soon as the model
 requests them.
 
 ## Prerequisites
