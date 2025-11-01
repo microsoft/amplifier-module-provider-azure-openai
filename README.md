@@ -15,6 +15,14 @@ This module enables Amplifier to use Azure OpenAI Service deployments for langua
 - **Tool Calling Support**: Full support for function calling/tools
 - **Managed Identity Support**: Seamless authentication in Azure environments
 
+### Tool Calling
+
+The provider now recognises Responses API `function_call` / `tool_call`
+payloads, decodes any JSON-encoded arguments, and forwards standard
+`ToolCall` objects to Amplifier. No additional configuration is needed—tools
+declared in your configuration or profiles will run as soon as the model
+requests them.
+
 ## Prerequisites
 
 - **Python 3.11+**
