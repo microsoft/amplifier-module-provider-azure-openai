@@ -4,7 +4,7 @@ A provider module that integrates Azure OpenAI Service with the Amplifier AI age
 
 ## Overview
 
-This module enables Amplifier to use Azure OpenAI Service deployments for language model completions. It supports the same chat completion API as standard OpenAI, but routes requests through Azure-hosted deployments with Azure-specific authentication and endpoint configuration.
+This module enables Amplifier to use Azure OpenAI Service deployments for language model reasoning via the Responses API. Requests are routed through your Azure endpoint with Azure-specific authentication and deployment configuration.
 
 ## Features
 
@@ -298,7 +298,7 @@ The module supports these environment variables as fallbacks:
 
 ### Generation Parameters
 
-- `AZURE_OPENAI_MAX_TOKENS` - Maximum tokens for completion (defaults to `4096`)
+- `AZURE_OPENAI_MAX_OUTPUT_TOKENS` - Maximum output tokens (defaults to `4096`)
 - `AZURE_OPENAI_TEMPERATURE` - Temperature for generation (defaults to `0.7`)
 
 **Note**: Configuration file values take precedence over environment variables.
@@ -327,10 +327,10 @@ api_version = "2024-10-01-preview"  # Use a newer version
 
 ### Breaking Changes in Newer API Versions
 
-**API versions 2024-08-01-preview and later** have introduced parameter changes:
+**API versions 2024-08-01-preview and later** introduce parameter changes:
 
-- Use `max_completion_tokens` instead of `max_tokens`
-- The provider automatically handles this for you
+- Use `max_output_tokens` (Azure) / `max_completion_tokens` (OpenAI) instead of `max_tokens`
+- The provider automatically handles this translation for you
 
 **Model-Specific Restrictions**: Some models (e.g., GPT-5 and later) have specific parameter requirements:
 
@@ -350,7 +350,7 @@ Check [Azure OpenAI documentation](https://docs.microsoft.com/azure/cognitive-se
 
 ## Tool Calling
 
-The provider fully supports OpenAI-style tool calling:
+The provider fully supports Responses API tool/function calling:
 
 ```python
 tools = [
