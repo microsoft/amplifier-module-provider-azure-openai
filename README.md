@@ -155,6 +155,34 @@ default_model = "gpt-5"
 # Optional: Generation parameters
 max_tokens = 4096
 temperature = 0.7
+
+# Optional: Debug configuration
+debug = false      # Enable standard debug events
+raw_debug = false  # Enable ultra-verbose raw API I/O logging
+```
+
+### Debug Configuration
+
+**Standard Debug** (`debug: true`):
+- Emits `llm:request:debug` and `llm:response:debug` events
+- Contains request/response summaries with message counts, model info, usage stats
+- Moderate log volume, suitable for development
+
+**Raw Debug** (`debug: true, raw_debug: true`):
+- Emits `llm:request:raw` and `llm:response:raw` events
+- Contains complete, unmodified request params and response objects
+- Extreme log volume, use only for deep provider integration debugging
+- Captures the exact data sent to/from Azure OpenAI API before any processing
+
+**Example**:
+```yaml
+providers:
+  - module: provider-azure-openai
+    config:
+      debug: true      # Enable debug events
+      raw_debug: true  # Enable raw API I/O capture
+      azure_endpoint: https://myresource.openai.azure.com
+      api_key: ${AZURE_OPENAI_API_KEY}
 ```
 
 ## Deployment Name Mapping

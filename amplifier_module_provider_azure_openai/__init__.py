@@ -167,6 +167,7 @@ class AzureOpenAIProvider:
         self.enable_state = self.config.get("enable_state", False)
         self.priority = self.config.get("priority", 100)
         self.debug = self.config.get("debug", False)  # Enable full request/response logging
+        self.raw_debug = self.config.get("raw_debug", False)  # Enable ultra-verbose raw API I/O logging
         self.timeout = self.config.get("timeout", 300.0)  # API timeout in seconds (default 5 minutes)
 
         logger.debug(f"Configured with default_model: {self.default_model}")
@@ -253,11 +254,38 @@ class AzureOpenAIProvider:
                     },
                 )
 
+        # RAW DEBUG: Complete request params sent to Azure OpenAI API (ultra-verbose)
+        if self.coordinator and hasattr(self.coordinator, "hooks") and self.debug and self.raw_debug:
+            await self.coordinator.hooks.emit(
+                "llm:request:raw",
+                {
+                    "lvl": "DEBUG",
+                    "data": {
+                        "provider": "azure-openai",
+                        "params": params,  # Complete params dict as-is
+                    },
+                },
+            )
+
         start_time = time.time()
         try:
             # 3. Call Responses API with timeout
             try:
                 response = await asyncio.wait_for(self.client.responses.create(**params), timeout=self.timeout)
+
+                # RAW DEBUG: Complete raw response from Azure OpenAI API (ultra-verbose)
+                if self.coordinator and hasattr(self.coordinator, "hooks") and self.debug and self.raw_debug:
+                    await self.coordinator.hooks.emit(
+                        "llm:response:raw",
+                        {
+                            "lvl": "DEBUG",
+                            "data": {
+                                "provider": "azure-openai",
+                                "response": response,  # Complete response object as-is
+                            },
+                        },
+                    )
+
                 elapsed_ms = int((time.time() - start_time) * 1000)
             except TimeoutError:
                 logger.error("Azure OpenAI Responses API timed out after 30s")
