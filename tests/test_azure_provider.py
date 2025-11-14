@@ -3,7 +3,6 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
 
-import pytest
 from amplifier_core import ModuleCoordinator
 from amplifier_module_provider_azure_openai import AzureOpenAIProvider
 from amplifier_module_provider_azure_openai import mount
@@ -46,9 +45,10 @@ def test_extended_thinking_matches_openai_behaviour():
     assert call_kwargs["max_output_tokens"] == 7024
 
 
-def test_tool_call_validation_emits_azure_provider_name():
+def test_tool_call_repair_emits_azure_provider_name():
+    """Azure provider repairs missing tool results and emits correct provider name."""
     provider = AzureOpenAIProvider(base_url="https://example", api_key="test-key")
-    provider.client.responses.create = AsyncMock()
+    provider.client.responses.create = AsyncMock(return_value=DummyResponse())
 
     fake_coordinator = FakeCoordinator()
     provider.coordinator = cast(ModuleCoordinator, fake_coordinator)
@@ -64,14 +64,16 @@ def test_tool_call_validation_emits_azure_provider_name():
         {"role": "user", "content": "No tool result present"},
     ]
 
-    with pytest.raises(RuntimeError):
-        asyncio.run(provider.complete(messages))
+    # Should repair and succeed (not raise)
+    asyncio.run(provider.complete(messages))
 
-    provider.client.responses.create.assert_not_called()
-    assert fake_coordinator.hooks.events
-    event_name, payload = fake_coordinator.hooks.events[0]
-    assert event_name == "provider:validation_error"
-    assert payload["provider"] == provider.name
+    provider.client.responses.create.assert_awaited_once()
+
+    # Should emit repair event with azure-openai provider name
+    repair_events = [e for e in fake_coordinator.hooks.events if e[0] == "provider:tool_sequence_repaired"]
+    assert len(repair_events) == 1
+    assert repair_events[0][1]["provider"] == "azure-openai"
+    assert repair_events[0][1]["repair_count"] == 1
 
 
 def test_mount_returns_cleanup_and_closes_client():

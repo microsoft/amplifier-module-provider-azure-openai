@@ -23,6 +23,17 @@ payloads, decodes any JSON-encoded arguments, and forwards standard
 declared in your configuration or profiles run as soon as the model
 requests them.
 
+### Graceful Error Recovery
+
+This provider inherits graceful degradation from the OpenAI base provider:
+
+- **Automatic repair** of missing tool results in conversation history
+- **Visible failures** via `[SYSTEM ERROR]` messages in synthetic results
+- **Session continuity** even when context bugs occur
+- **Observability** via `provider:tool_sequence_repaired` events
+
+See [OpenAI provider documentation](https://github.com/microsoft/amplifier-module-provider-openai#graceful-error-recovery) for detailed explanation of the graceful degradation pattern.
+
 ## Prerequisites
 
 - **Python 3.11+**
