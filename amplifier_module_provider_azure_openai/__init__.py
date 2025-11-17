@@ -67,7 +67,7 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
 
         try:
             if use_default_credential:
-                credential = DefaultAzureCredential()
+                credential = DefaultAzureCredential(exclude_managed_identity_credential=True)
                 auth_summary = "DefaultAzureCredential"
             elif managed_identity_client_id:
                 credential = ManagedIdentityCredential(client_id=managed_identity_client_id)
