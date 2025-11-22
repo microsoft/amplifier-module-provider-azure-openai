@@ -155,7 +155,7 @@ api_version = "2024-10-01-preview"
 [providers.config.deployment_mapping]
 "gpt-5.1" = "my-gpt5-deployment"
 "gpt-5.1" = "my-gpt5-deployment"
-"gpt-5.1-mini" = "my-mini-deployment"
+"gpt-5-mini" = "my-mini-deployment"
 
 # Optional: Default deployment when no mapping matches
 default_deployment = "my-default-deployment"
@@ -175,23 +175,26 @@ raw_debug = false  # Enable ultra-verbose raw API I/O logging
 ### Debug Configuration
 
 **Standard Debug** (`debug: true`):
+
 - Emits `llm:request:debug` and `llm:response:debug` events
 - Contains request/response summaries with message counts, model info, usage stats
 - Moderate log volume, suitable for development
 
 **Raw Debug** (`debug: true, raw_debug: true`):
+
 - Emits `llm:request:raw` and `llm:response:raw` events
 - Contains complete, unmodified request params and response objects
 - Extreme log volume, use only for deep provider integration debugging
 - Captures the exact data sent to/from Azure OpenAI API before any processing
 
 **Example**:
+
 ```yaml
 providers:
   - module: provider-azure-openai
     config:
-      debug: true      # Enable debug events
-      raw_debug: true  # Enable raw API I/O capture
+      debug: true # Enable debug events
+      raw_debug: true # Enable raw API I/O capture
       azure_endpoint: https://myresource.openai.azure.com
       api_key: ${AZURE_OPENAI_API_KEY}
 ```
@@ -211,13 +214,13 @@ Azure OpenAI uses deployment names instead of model names. This module provides 
 ```toml
 [providers.config.deployment_mapping]
 "gpt-5.1" = "production-gpt5"
-"gpt-5.1-mini" = "fast-mini"
+"gpt-5-mini" = "fast-mini"
 
 default_deployment = "fallback-deployment"
 ```
 
 - Request for "gpt-5.1" → Uses "production-gpt5"
-- Request for "gpt-5.1-mini" → Uses "fast-mini"
+- Request for "gpt-5-mini" → Uses "fast-mini"
 - Request for "claude-opus-4-1" → Uses "fallback-deployment" (not in mapping)
 - Request for "my-custom-deploy" → Uses "my-custom-deploy" (if no default set)
 
