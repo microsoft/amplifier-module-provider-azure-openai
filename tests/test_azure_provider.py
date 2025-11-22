@@ -4,6 +4,9 @@ from typing import cast
 from unittest.mock import AsyncMock
 
 from amplifier_core import ModuleCoordinator
+from amplifier_core.message_models import ChatRequest
+from amplifier_core.message_models import Message
+from amplifier_core.message_models import ToolCallBlock
 from amplifier_module_provider_azure_openai import AzureOpenAIProvider
 from amplifier_module_provider_azure_openai import mount
 
@@ -34,9 +37,10 @@ def test_extended_thinking_matches_openai_behaviour():
     provider = AzureOpenAIProvider(base_url="https://example", api_key="test-key", config={"max_tokens": 1024})
     provider.client.responses.create = AsyncMock(return_value=DummyResponse())
 
-    messages = [{"role": "user", "content": "Hello"}]
+    messages = [Message(role="user", content="Hello")]
+    request = ChatRequest(messages=messages)
 
-    asyncio.run(provider.complete(messages, extended_thinking=True, thinking_budget_tokens=6000))
+    asyncio.run(provider.complete(request, extended_thinking=True, thinking_budget_tokens=6000))
 
     provider.client.responses.create.assert_awaited()
     call_kwargs = provider.client.responses.create.await_args_list[0].kwargs
@@ -54,18 +58,16 @@ def test_tool_call_repair_emits_azure_provider_name():
     provider.coordinator = cast(ModuleCoordinator, fake_coordinator)
 
     messages = [
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {"id": "call_1", "function": {"name": "do_something", "arguments": '{"value": 1}'}},
-            ],
-        },
-        {"role": "user", "content": "No tool result present"},
+        Message(
+            role="assistant",
+            content=[ToolCallBlock(id="call_1", name="do_something", input={"value": 1})],
+        ),
+        Message(role="user", content="No tool result present"),
     ]
+    request = ChatRequest(messages=messages)
 
     # Should repair and succeed (not raise)
-    asyncio.run(provider.complete(messages))
+    asyncio.run(provider.complete(request))
 
     provider.client.responses.create.assert_awaited_once()
 
@@ -112,17 +114,15 @@ def test_incomplete_tool_call_removed_for_azure():
     provider.client.responses.create = AsyncMock(return_value=DummyResponse())
 
     messages = [
-        {"role": "user", "content": "start"},
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {"id": "call_az_1", "function": {"name": "azure_tool", "arguments": "{}"}},
-            ],
-        },
-        {"role": "user", "content": "follow-up"},
+        Message(role="user", content="start"),
+        Message(
+            role="assistant",
+            content=[ToolCallBlock(id="call_az_1", name="azure_tool", input={})],
+        ),
+        Message(role="user", content="follow-up"),
     ]
+    request = ChatRequest(messages=messages)
 
-    asyncio.run(provider.complete(messages))
+    asyncio.run(provider.complete(request))
 
     provider.client.responses.create.assert_awaited_once()
