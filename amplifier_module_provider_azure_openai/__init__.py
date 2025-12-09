@@ -6,6 +6,9 @@ Wraps the OpenAI provider implementation while adding Azure-specific authenticat
 
 __all__ = ["mount", "AzureOpenAIProvider"]
 
+# Amplifier module metadata
+__amplifier_module_type__ = "provider"
+
 import logging
 import os
 from collections.abc import Awaitable
