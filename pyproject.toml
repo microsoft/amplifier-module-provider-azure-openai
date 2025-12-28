@@ -11,7 +11,10 @@ authors = [
 dependencies = [
     "azure-identity>=1.25.1",
     "openai>=1.0.0",
-    "amplifier-module-provider-openai @ git+https://github.com/microsoft/amplifier-module-provider-openai@main",
+    # NOTE: amplifier-module-provider-openai is a runtime dependency, not a build dependency.
+    # It must be installed separately (e.g., via amplifier init or bundle configuration).
+    # This avoids the transitive dependency issue where uv pip install -e would install
+    # the openai provider non-editable, overwriting any existing editable install.
 ]
 
 [project.entry-points."amplifier.modules"]
