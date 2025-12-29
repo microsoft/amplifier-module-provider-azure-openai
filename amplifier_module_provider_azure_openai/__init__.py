@@ -152,34 +152,54 @@ if OPENAI_PROVIDER_AVAILABLE:
         def __init__(
             self,
             *,
-            base_url: str,
+            base_url: str | None = None,
             api_key: str | None = None,
             token_provider: Callable[[], Awaitable[str]] | None = None,
             config: dict[str, Any] | None = None,
             coordinator: ModuleCoordinator | None = None,
         ):
-            if not base_url:
-                raise ValueError("base_url is required")
-            if api_key is None and token_provider is None:
-                raise ValueError("api_key or token_provider must be provided")
+            """Initialize Azure OpenAI provider.
 
-            client = AsyncOpenAI(base_url=base_url, api_key=api_key or token_provider)
+            The SDK client is created lazily on first use, allowing get_info()
+            to work without valid credentials.
+            """
+            # Store for lazy client creation
+            self._base_url = base_url
+            self._token_provider = token_provider
+            self._azure_client: AsyncOpenAI | None = None
 
-            super().__init__(api_key=api_key, config=config, coordinator=coordinator, client=client)
+            # Call parent with no client - we override the client property
+            super().__init__(api_key=api_key, config=config, coordinator=coordinator, client=None)
 
+            # Override base_url from parent
             self.base_url = base_url
             self.token_provider = token_provider
-            self._auth_mode = "api_key" if api_key else "token_provider"
+            self._auth_mode = "api_key" if api_key else "token_provider" if token_provider else "none"
 
             # Azure deployments commonly use "default_deployment" config keys
             self.default_model = self.config.get("default_model") or self.config.get("default_deployment", "gpt-5.1")
 
-            logger.debug(
-                "AzureOpenAIProvider configured (auth=%s, default_model=%s, base_url=%s)",
-                self._auth_mode,
-                self.default_model,
-                base_url,
-            )
+            if base_url:
+                logger.debug(
+                    "AzureOpenAIProvider configured (auth=%s, default_model=%s, base_url=%s)",
+                    self._auth_mode,
+                    self.default_model,
+                    base_url,
+                )
+
+        @property
+        def client(self) -> AsyncOpenAI:
+            """Lazily initialize the Azure OpenAI client on first access."""
+            if self._azure_client is None:
+                if not self._base_url:
+                    raise ValueError("base_url is required for API calls")
+                if self._api_key is None and self._token_provider is None:
+                    raise ValueError("api_key or token_provider must be provided for API calls")
+                self._azure_client = AsyncOpenAI(
+                    base_url=self._base_url,
+                    api_key=self._api_key or self._token_provider,
+                )
+            return self._azure_client
 
         def get_info(self) -> ProviderInfo:
             """Get provider metadata."""
