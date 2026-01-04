@@ -207,7 +207,7 @@ if OPENAI_PROVIDER_AVAILABLE:
                 id="azure-openai",
                 display_name="Azure OpenAI",
                 credential_env_vars=["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"],
-                capabilities=["streaming", "tools", "vision", "reasoning", "batch", "json_mode"],
+                capabilities=["streaming", "tools", "reasoning", "batch", "json_mode"],
                 defaults={
                     "model": "gpt-5.1",
                     "max_tokens": 16384,
