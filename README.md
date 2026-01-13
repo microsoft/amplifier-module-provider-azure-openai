@@ -20,7 +20,7 @@ This module enables Amplifier to use Azure OpenAI Service deployments for langua
 The provider recognises Responses API `function_call` / `tool_call`
 payloads, decodes any JSON-encoded arguments, and forwards standard
 `ToolCall` objects to Amplifier. No additional configuration is needed—tools
-declared in your configuration or profiles run as soon as the model
+declared in your bundle configuration run as soon as the model
 requests them.
 
 ### Graceful Error Recovery
@@ -51,19 +51,25 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 ## Installation
 
-Install the module using pip:
+The Azure OpenAI provider is automatically installed when you run `amplifier init`:
 
 ```bash
-uv pip install -e amplifier-module-provider-azure-openai
+amplifier init
 ```
 
-For Managed Identity authentication support, install with the `azure` extra:
+Or install it explicitly:
 
 ```bash
-uv pip install -e amplifier-module-provider-azure-openai[azure]
+amplifier provider install azure-openai
 ```
 
-Or add it to your Amplifier configuration for automatic installation.
+For Managed Identity authentication support, the `azure-identity` package is required. Install it separately:
+
+```bash
+uv pip install azure-identity
+```
+
+**Note**: When Amplifier runs `amplifier init`, it automatically installs all known provider modules including this one.
 
 ## Quick Start with Environment Variables
 
@@ -148,7 +154,7 @@ api_key = "your-api-key-here"                    # Option 1: API Key
 # For user-assigned managed identity (optional)
 # managed_identity_client_id = "client-id-here"
 
-# Optional: API version (defaults to 2024-02-15-preview)
+# Optional: API version (defaults to 2024-10-01-preview)
 api_version = "2024-10-01-preview"
 
 # Optional: Map model names to Azure deployment names
@@ -325,7 +331,7 @@ The module supports these environment variables as fallbacks:
 - `AZURE_OPENAI_ENDPOINT` or `AZURE_OPENAI_BASE_URL` - Azure OpenAI resource endpoint
 - `AZURE_OPENAI_API_KEY` or `AZURE_OPENAI_KEY` - API key for authentication
 - `AZURE_OPENAI_AD_TOKEN` - Azure AD token for authentication
-- `AZURE_OPENAI_API_VERSION` - API version (defaults to `2024-02-15-preview`)
+- `AZURE_OPENAI_API_VERSION` - API version (defaults to `2024-10-01-preview`)
 
 ### Managed Identity Configuration
 
@@ -360,7 +366,7 @@ response = await session.send_message(
 
 ## API Versions
 
-The module defaults to API version `2024-02-15-preview`. You can override this:
+The module defaults to API version `2024-10-01-preview`. You can override this:
 
 ```toml
 [provider.config]
