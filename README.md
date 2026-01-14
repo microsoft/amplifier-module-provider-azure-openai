@@ -91,8 +91,8 @@ export AZURE_USE_DEFAULT_CREDENTIAL="true"
 export AZURE_OPENAI_API_VERSION="2024-10-01-preview"
 export AZURE_OPENAI_DEFAULT_MODEL="gpt-5.1"
 
-# Run amplifier - no config file needed!
-amplifier run
+# Start amplifier - no config file needed!
+amplifier
 ```
 
 ### For API Key Authentication
@@ -106,8 +106,8 @@ export AZURE_OPENAI_API_KEY="your-api-key-here"
 export AZURE_OPENAI_API_VERSION="2024-10-01-preview"
 export AZURE_OPENAI_DEFAULT_MODEL="gpt-5.1"
 
-# Run amplifier
-amplifier run
+# Start amplifier
+amplifier
 ```
 
 ### For Azure Deployments
