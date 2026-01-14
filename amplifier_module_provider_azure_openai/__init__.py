@@ -38,11 +38,24 @@ def _get_openai_provider_class() -> type | None:
     Returns:
         The OpenAIProvider class if available, None otherwise.
     """
+    import importlib
+    import sys
+
     global _OpenAIProvider, _openai_import_attempted
 
     # Return cached value if we've already successfully imported
     if _OpenAIProvider is not None:
         return _OpenAIProvider
+
+    # Clear any cached import failures - the module might have been installed
+    # since this module was first loaded (e.g., during provider auto-install)
+    importlib.invalidate_caches()
+
+    # Remove any cached failed import attempts from sys.modules
+    # This handles the case where an earlier import attempt failed
+    module_name = "amplifier_module_provider_openai"
+    if module_name in sys.modules and sys.modules[module_name] is None:
+        del sys.modules[module_name]
 
     # Retry import each time if previous attempt failed
     # (the module might have been installed since last attempt)
