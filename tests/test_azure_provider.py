@@ -1,7 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from amplifier_core import ModuleCoordinator
 from amplifier_core.message_models import ChatRequest
@@ -163,3 +163,30 @@ def test_azure_client_sdk_retries_disabled():
         api_key="test-key",
     )
     assert provider.client.max_retries == 0
+
+
+def test_token_provider_callable_passed_as_api_key():
+    """When api_key is None and token_provider is an async callable, the callable
+    is passed directly to AsyncOpenAI as api_key.
+    This works because the OpenAI SDK (>= 1.0) natively supports:
+        api_key: str | Callable[[], Awaitable[str]] | None
+    The SDK stores the callable and calls it per-request for token refresh.
+    """
+
+    async def fake_token_provider() -> str:
+        return "test-token"
+
+    with patch("amplifier_module_provider_azure_openai.AsyncOpenAI") as MockAsyncOpenAI:
+        MockAsyncOpenAI.return_value = MagicMock()
+        provider = _create_azure_provider(
+            MockOpenAIProvider,
+            base_url="https://example.openai.azure.com/openai/v1/",
+            token_provider=fake_token_provider,
+        )
+        _ = provider.client  # Triggers lazy client creation
+
+        MockAsyncOpenAI.assert_called_once_with(
+            base_url="https://example.openai.azure.com/openai/v1/",
+            api_key=fake_token_provider,
+            max_retries=0,
+        )
