@@ -293,6 +293,8 @@ def _create_azure_provider(
             """List available Azure OpenAI models.
 
             Returns empty list since Azure deployments are customer-specific.
+            Cost data (cost_per_input_token, cost_per_output_token, cost_tier)
+            would need to be configured per-deployment by the customer.
             """
             return []
 
