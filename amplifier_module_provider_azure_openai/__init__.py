@@ -274,6 +274,7 @@ def _create_azure_provider(
                 self._azure_client = AsyncOpenAI(
                     base_url=self._base_url,
                     api_key=self._api_key or self._token_provider,
+                    max_retries=0,  # Amplifier manages retries via retry_with_backoff
                 )
             return self._azure_client
 
