@@ -273,7 +273,15 @@ def _create_azure_provider(
                     )
                 self._azure_client = AsyncOpenAI(
                     base_url=self._base_url,
+                    # When using managed identity, self._token_provider is an async
+                    # callable (not a string). This works because the OpenAI SDK
+                    # (>= 1.0) natively accepts Callable as api_key:
+                    #   api_key: str | Callable[[], Awaitable[str]] | None
+                    # The SDK stores the callable and calls it per-request via
+                    # _refresh_api_key(), enabling automatic token refresh for
+                    # Azure managed identity authentication.
                     api_key=self._api_key or self._token_provider,
+                    max_retries=0,  # Amplifier manages retries via retry_with_backoff
                 )
             return self._azure_client
 
