@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,6 +8,7 @@ from amplifier_core import ModuleCoordinator
 from amplifier_core.message_models import ChatRequest
 from amplifier_core.message_models import Message
 from amplifier_core.message_models import ToolCallBlock
+from amplifier_core.utils.retry import RetryConfig
 from amplifier_module_provider_azure_openai import AzureOpenAIProvider
 from amplifier_module_provider_azure_openai import _create_azure_provider
 from amplifier_module_provider_azure_openai import mount
@@ -189,4 +191,80 @@ def test_token_provider_callable_passed_as_api_key():
             base_url="https://example.openai.azure.com/openai/v1/",
             api_key=fake_token_provider,
             max_retries=0,
+        )
+
+
+class TestAzureRetryConfigAlignment:
+    """Verify Azure OpenAI inherits correct RetryConfig from OpenAI provider.
+
+    After the Rust field-name alignment (initial_delay not min_delay,
+    jitter=bool not jitter=float), the Azure provider must inherit the
+    corrected configuration since it does not construct RetryConfig itself.
+    """
+
+    def test_retry_config_inherited_and_is_retry_config(self):
+        """Azure provider should inherit _retry_config of type RetryConfig."""
+        from amplifier_module_provider_openai import OpenAIProvider
+
+        provider = _create_azure_provider(
+            OpenAIProvider,
+            base_url="https://example.openai.azure.com/openai/v1/",
+            api_key="test-key",
+        )
+        assert hasattr(provider, "_retry_config")
+        assert isinstance(provider._retry_config, RetryConfig)
+
+    def test_retry_config_uses_initial_delay(self):
+        """Inherited RetryConfig must use initial_delay (Rust field name)."""
+        from amplifier_module_provider_openai import OpenAIProvider
+
+        provider = _create_azure_provider(
+            OpenAIProvider,
+            base_url="https://example.openai.azure.com/openai/v1/",
+            api_key="test-key",
+            config={"min_retry_delay": 3.0},
+        )
+        assert provider._retry_config.initial_delay == 3.0
+
+    def test_retry_config_jitter_from_bool(self):
+        """Inherited RetryConfig.jitter must come from bool(config), not float(config)."""
+        from amplifier_module_provider_openai import OpenAIProvider
+
+        # Default jitter=True -> RetryConfig converts to 0.2
+        provider = _create_azure_provider(
+            OpenAIProvider,
+            base_url="https://example.openai.azure.com/openai/v1/",
+            api_key="test-key",
+        )
+        assert provider._retry_config.jitter == 0.2  # True -> default jitter factor
+
+        # Explicit jitter=False -> 0.0
+        provider_no_jitter = _create_azure_provider(
+            OpenAIProvider,
+            base_url="https://example.openai.azure.com/openai/v1/",
+            api_key="test-key",
+            config={"retry_jitter": False},
+        )
+        assert provider_no_jitter._retry_config.jitter == 0.0
+
+    def test_no_jitter_compat_code_in_azure_source(self):
+        """Azure OpenAI source must not contain jitter bool/float compat code."""
+        import amplifier_module_provider_azure_openai as mod
+
+        source = inspect.getsource(mod)
+        assert "jitter_cfg" not in source, "jitter_cfg compat variable should not exist"
+        assert "isinstance(jitter_cfg" not in source, (
+            "isinstance check should not exist"
+        )
+
+    def test_no_retryconfig_construction_in_azure_source(self):
+        """Azure OpenAI must not construct RetryConfig directly (inherits from OpenAI)."""
+        import amplifier_module_provider_azure_openai as mod
+
+        source = inspect.getsource(mod)
+        assert "RetryConfig(" not in source, (
+            "Azure OpenAI should not construct RetryConfig; it inherits from OpenAI"
+        )
+        assert "min_delay=" not in source, (
+            "Azure OpenAI should not reference min_delay="
         )
