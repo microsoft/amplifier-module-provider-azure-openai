@@ -194,8 +194,8 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
     )
 
     async def cleanup():
-        if hasattr(provider, "client") and hasattr(provider.client, "close"):
-            await provider.client.close()
+        if provider._azure_client is not None:
+            await provider._azure_client.close()
 
     return cleanup
 
@@ -295,6 +295,12 @@ def _create_azure_provider(
             Returns empty list since Azure deployments are customer-specific.
             """
             return []
+
+        async def close(self) -> None:
+            """Close the underlying Azure OpenAI client to prevent resource leaks."""
+            if self._azure_client is not None:
+                await self._azure_client.close()
+                self._azure_client = None
 
     return _AzureOpenAIProvider(
         base_url=base_url,
