@@ -38,15 +38,6 @@ class FakeCoordinator:
         self.hooks = FakeHooks()
 
 
-class MockOpenAIProvider:
-    """Minimal stand-in for OpenAIProvider to test Azure-specific overrides."""
-
-    def __init__(self, *, api_key=None, config=None, coordinator=None, client=None):
-        self._api_key = api_key
-        self.config = config or {}
-        self.coordinator = coordinator
-
-
 def test_extended_thinking_matches_openai_behaviour():
     from amplifier_module_provider_openai import OpenAIProvider
 
@@ -171,20 +162,20 @@ def test_incomplete_tool_call_removed_for_azure():
     provider.client.responses.create.assert_awaited_once()
 
 
-def test_azure_client_sdk_retries_disabled():
+def test_azure_client_sdk_retries_disabled(mock_openai_provider_cls):
     """Azure OpenAI client must be created with max_retries=0.
     Amplifier manages retries via retry_with_backoff. Without max_retries=0,
     the SDK default (2) causes up to 18 HTTP requests instead of 6.
     """
     provider = _create_azure_provider(
-        MockOpenAIProvider,
+        mock_openai_provider_cls,
         base_url="https://example.openai.azure.com/openai/v1/",
         api_key="test-key",
     )
     assert provider.client.max_retries == 0
 
 
-def test_token_provider_callable_passed_as_api_key():
+def test_token_provider_callable_passed_as_api_key(mock_openai_provider_cls):
     """When api_key is None and token_provider is an async callable, the callable
     is passed directly to AsyncOpenAI as api_key.
     This works because the OpenAI SDK (>= 1.0) natively supports:
@@ -198,7 +189,7 @@ def test_token_provider_callable_passed_as_api_key():
     with patch("amplifier_module_provider_azure_openai.AsyncOpenAI") as MockAsyncOpenAI:
         MockAsyncOpenAI.return_value = MagicMock()
         provider = _create_azure_provider(
-            MockOpenAIProvider,
+            mock_openai_provider_cls,
             base_url="https://example.openai.azure.com/openai/v1/",
             token_provider=fake_token_provider,
         )
