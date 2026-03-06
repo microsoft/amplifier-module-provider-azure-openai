@@ -160,7 +160,7 @@ api_version = "2024-10-01-preview"
 # Optional: Map model names to Azure deployment names
 [providers.config.deployment_mapping]
 "gpt-5.4" = "my-gpt5-deployment"
-"gpt-5.4" = "my-gpt5-deployment"
+"gpt-5.4-mini" = "my-gpt5-mini-deployment"
 "gpt-5-mini" = "my-mini-deployment"
 
 # Optional: Default deployment when no mapping matches
