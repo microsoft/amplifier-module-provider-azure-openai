@@ -8,15 +8,6 @@ from amplifier_module_provider_azure_openai import _create_azure_provider
 from amplifier_module_provider_azure_openai import _get_azure_provider_info
 
 
-class MockOpenAIProvider:
-    """Minimal stand-in for OpenAIProvider."""
-
-    def __init__(self, *, api_key=None, config=None, coordinator=None, client=None):
-        self._api_key = api_key
-        self.config = config or {}
-        self.coordinator = coordinator
-
-
 def test_provider_info_model_default_is_gpt54():
     """ProviderInfo defaults must specify gpt-5.4 as the model."""
     info = _get_azure_provider_info()
@@ -35,10 +26,10 @@ def test_provider_info_max_output_tokens_unchanged():
     assert info.defaults["max_output_tokens"] == 128000
 
 
-def test_default_deployment_is_gpt54():
+def test_default_deployment_is_gpt54(mock_openai_provider_cls):
     """The default_deployment fallback must be gpt-5.4."""
     provider = _create_azure_provider(
-        MockOpenAIProvider,
+        mock_openai_provider_cls,
         base_url="https://example.openai.azure.com/openai/v1/",
         api_key="test-key",
         config={},
