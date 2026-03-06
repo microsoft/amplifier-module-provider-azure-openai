@@ -250,7 +250,7 @@ def _create_azure_provider(
 
             # Azure deployments commonly use "default_deployment" config keys
             self.default_model = self.config.get("default_model") or self.config.get(
-                "default_deployment", "gpt-5.1"
+                "default_deployment", "gpt-5.4"
             )
 
             if base_url:
@@ -323,11 +323,11 @@ def _get_azure_provider_info() -> ProviderInfo:
         credential_env_vars=["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"],
         capabilities=["streaming", "tools", "reasoning", "batch", "json_mode"],
         defaults={
-            "model": "gpt-5.1",
+            "model": "gpt-5.4",
             "max_tokens": 16384,
             "temperature": None,
             "timeout": 600.0,
-            "context_window": 400000,
+            "context_window": 272000,
             "max_output_tokens": 128000,
         },
         config_fields=[
