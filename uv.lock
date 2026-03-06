@@ -7,7 +7,6 @@ name = "amplifier-module-provider-azure-openai"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [
-    { name = "amplifier-module-provider-openai" },
     { name = "azure-identity" },
     { name = "openai" },
 ]
@@ -19,20 +18,11 @@ azure = [
 
 [package.metadata]
 requires-dist = [
-    { name = "amplifier-module-provider-openai", git = "https://github.com/microsoft/amplifier-module-provider-openai?rev=main" },
     { name = "azure-identity", specifier = ">=1.25.1" },
     { name = "azure-identity", marker = "extra == 'azure'", specifier = ">=1.15.0" },
     { name = "openai", specifier = ">=1.0.0" },
 ]
 provides-extras = ["azure"]
-
-[[package]]
-name = "amplifier-module-provider-openai"
-version = "1.0.0"
-source = { git = "https://github.com/microsoft/amplifier-module-provider-openai?rev=main#b62eeadb0c091bf93a71131157d5e37754d7811a" }
-dependencies = [
-    { name = "openai" },
-]
 
 [[package]]
 name = "annotated-types"
