@@ -45,7 +45,7 @@ def test_extended_thinking_matches_openai_behaviour():
         OpenAIProvider,
         base_url="https://example.openai.azure.com/openai/v1/",
         api_key="test-key",
-        config={"max_tokens": 1024},
+        config={"max_tokens": 1024, "use_streaming": False},
     )
     provider.client.responses.create = AsyncMock(return_value=DummyResponse())
 
@@ -71,6 +71,7 @@ def test_tool_call_repair_emits_azure_provider_name():
         OpenAIProvider,
         base_url="https://example.openai.azure.com/openai/v1/",
         api_key="test-key",
+        config={"use_streaming": False},
     )
     provider.client.responses.create = AsyncMock(return_value=DummyResponse())
 
@@ -144,6 +145,7 @@ def test_incomplete_tool_call_removed_for_azure():
         OpenAIProvider,
         base_url="https://example.openai.azure.com/openai/v1/",
         api_key="test-key",
+        config={"use_streaming": False},
     )
     provider.client.responses.create = AsyncMock(return_value=DummyResponse())
 
