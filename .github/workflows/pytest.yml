@@ -1,0 +1,39 @@
+name: pytest
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package + dev dependencies
+        run: uv sync --dev
+
+      - name: Install amplifier-module-provider-openai
+        # This runtime dep is intentionally excluded from pyproject.toml to avoid
+        # editable-install conflicts during local development (see pyproject.toml comment).
+        # It is NOT on PyPI, so we install directly from GitHub.
+        #
+        # Pinned to feat/m0-cost-management until openai#31 merges to main.
+        # TODO(openai#31): drop the @feat/m0-cost-management pin once that PR lands.
+        #
+        # If this step fails with a 404/auth error the repo is private — add a PAT
+        # with repo-read scope as a secret named GH_PAT and use:
+        #   git+https://${{ secrets.GH_PAT }}@github.com/...
+        run: |
+          uv pip install \
+            "amplifier-module-provider-openai @ git+https://github.com/microsoft/amplifier-module-provider-openai.git@feat/m0-cost-management"
+
+      - name: pytest
+        run: uv run pytest tests/ -v
