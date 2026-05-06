@@ -1,0 +1,45 @@
+name: pytest
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package + dev dependencies
+        run: uv sync --dev
+
+      - name: Install amplifier-module-provider-openai
+        # This runtime dep is intentionally excluded from pyproject.toml to avoid
+        # editable-install conflicts during local development (see pyproject.toml comment).
+        # It is NOT on PyPI — installed directly from GitHub on the same branch as this PR.
+        # On push to main (after openai#31 merges), this installs from main automatically.
+        #
+        # If this step fails with a 404/auth error the repo is private — add a PAT
+        # with repo-read scope as a secret named GH_PAT and use:
+        #   git+https://${{ secrets.GH_PAT }}@github.com/...
+        run: |
+          uv pip install \
+            "amplifier-module-provider-openai @ git+https://github.com/microsoft/amplifier-module-provider-openai.git@${{ github.head_ref || github.ref_name }}"
+
+      - name: pytest (canonical key tests)
+        # Runs the llm:response canonical key conformance tests — these verify the
+        # provider emits the correct input_tokens/output_tokens/cache_read_tokens keys
+        # without requiring live Azure credentials.
+        #
+        # Behavioral and structural validation tests (test_behavioral.py,
+        # test_validation.py) require a live Azure deployment with
+        # AZURE_OPENAI_ENDPOINT configured. These are not run in CI — execute
+        # locally against a real Azure environment.
+        run: uv run pytest tests/test_llm_response_ordering.py -v
