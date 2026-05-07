@@ -236,6 +236,6 @@ async def test_payg_deployment_computes_cost():
     assert chat_response.usage.cost_usd is not None, (
         "PAYG deployment must compute cost_usd for known model"
     )
-    assert chat_response.usage.cost_usd == Decimal("2.50"), (
+    assert Decimal(str(chat_response.usage.cost_usd)) == Decimal("2.50"), (
         f"Expected $2.50 for 1M prompt_tokens on gpt-5.4, got {chat_response.usage.cost_usd!r}"
     )
