@@ -97,11 +97,6 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
 
     config = config or {}
 
-    # ---------------------------------------------------------------------------
-    # Cost accumulation hook and session.cost contributor
-    # Registered when the coordinator supports hooks, so cost tracking works
-    # as long as the coordinator is fully capable (may be absent in minimal tests).
-    # ---------------------------------------------------------------------------
     azure_endpoint = (
         config.get("azure_endpoint")
         or os.environ.get("AZURE_OPENAI_ENDPOINT")
