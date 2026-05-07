@@ -366,7 +366,7 @@ def _create_azure_provider(
                 )
 
             # Override cost_usd (replaces parent's OpenAI cost calculation with Azure-specific)
-            usage = chat_response.usage.model_copy(update={'cost_usd': str(cost) if cost is not None else None})
+            usage = chat_response.usage.model_copy(update={'cost_usd': cost})
             return chat_response.model_copy(update={'usage': usage})
 
         async def close(self) -> None:
