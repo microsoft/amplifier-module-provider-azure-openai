@@ -110,14 +110,12 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
             _totals['cost_usd'] = (_totals['cost_usd'] or Decimal('0')) + Decimal(str(raw))
             _totals['has_data'] = True
 
-    if hasattr(coordinator, 'hooks') and hasattr(coordinator.hooks, 'register'):
-        coordinator.hooks.register('llm:response', _accumulate)
-    if hasattr(coordinator, 'register_contributor'):
-        coordinator.register_contributor(
-            'session.cost',
-            'provider-azure-openai',
-            lambda: {'cost_usd': _totals['cost_usd']} if _totals['has_data'] else None,
-        )
+    coordinator.hooks.register('llm:response', _accumulate)
+    coordinator.register_contributor(
+        'session.cost',
+        'provider-azure-openai',
+        lambda: {'cost_usd': _totals['cost_usd']} if _totals['has_data'] else None,
+    )
 
     azure_endpoint = (
         config.get("azure_endpoint")
