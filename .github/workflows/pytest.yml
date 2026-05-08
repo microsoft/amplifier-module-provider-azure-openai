@@ -31,7 +31,7 @@ jobs:
         #   git+https://${{ secrets.GH_PAT }}@github.com/...
         run: |
           uv pip install \
-            "amplifier-module-provider-openai @ git+https://github.com/microsoft/amplifier-module-provider-openai.git@${{ github.head_ref || github.ref_name }}"
+            "amplifier-module-provider-openai @ git+https://github.com/microsoft/amplifier-module-provider-openai.git@feat/m2-openai"
 
       - name: pytest (canonical key tests)
         # Runs the llm:response canonical key conformance tests — these verify the
