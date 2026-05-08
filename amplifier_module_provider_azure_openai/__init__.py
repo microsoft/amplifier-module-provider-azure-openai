@@ -209,7 +209,7 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
     coordinator.register_contributor(
         "session.cost",
         "provider-azure-openai",
-        lambda: {"cost_usd": _totals["cost_usd"]} if _totals["has_data"] else None,
+        lambda: {"cost_usd": str(_totals["cost_usd"]) if _totals["cost_usd"] is not None else None} if _totals["has_data"] else None,
     )
 
     async def cleanup():
