@@ -179,6 +179,12 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         return None
 
     # Create the provider instance using the dynamically loaded class
+    _totals: dict[str, Decimal] = {"cost_usd": Decimal(0)}
+
+    def _add_cost(cost: Decimal | None) -> None:
+        if cost is not None:
+            _totals["cost_usd"] += cost
+
     provider = _create_azure_provider(
         OpenAIProviderClass,
         base_url=base_url,
@@ -186,6 +192,7 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         token_provider=token_provider,
         config=config,
         coordinator=coordinator,
+        add_cost=_add_cost,
     )
 
     await coordinator.mount("providers", provider, name=provider.name)
@@ -194,6 +201,11 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         base_url,
         api_version,
         auth_summary,
+    )
+    coordinator.register_contributor(
+        "session.cost",
+        "provider-azure-openai",
+        lambda: _totals,
     )
 
     async def cleanup():
@@ -211,6 +223,7 @@ def _create_azure_provider(
     token_provider: Callable[[], Awaitable[str]] | None = None,
     config: dict[str, Any] | None = None,
     coordinator: ModuleCoordinator | None = None,
+    add_cost: Callable[[Decimal | None], None] | None = None,
 ) -> Any:
     """Create an AzureOpenAIProvider instance that inherits from OpenAIProvider.
 
@@ -232,12 +245,14 @@ def _create_azure_provider(
             token_provider: Callable[[], Awaitable[str]] | None = None,
             config: dict[str, Any] | None = None,
             coordinator: ModuleCoordinator | None = None,
+            add_cost: Callable[[Decimal | None], None] | None = None,
         ):
             """Initialize Azure OpenAI provider."""
             # Store for lazy client creation
             self._base_url = base_url
             self._token_provider = token_provider
             self._azure_client: AsyncOpenAI | None = None
+            self._add_cost = add_cost if add_cost is not None else lambda cost: None
 
             # Call parent with no client - we override the client property
             super().__init__(
@@ -347,6 +362,7 @@ def _create_azure_provider(
 
             # Override cost_usd (replaces parent's OpenAI cost calculation with Azure-specific)
             usage = chat_response.usage.model_copy(update={"cost_usd": cost})
+            self._add_cost(cost)
             return chat_response.model_copy(update={"usage": usage})
 
         async def close(self) -> None:
@@ -361,6 +377,7 @@ def _create_azure_provider(
         token_provider=token_provider,
         config=config,
         coordinator=coordinator,
+        add_cost=add_cost,
     )
 
 
