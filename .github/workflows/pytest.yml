@@ -21,17 +21,16 @@ jobs:
         run: uv sync --dev
 
       - name: Install amplifier-module-provider-openai
-        # This runtime dep is intentionally excluded from pyproject.toml to avoid
-        # editable-install conflicts during local development (see pyproject.toml comment).
-        # It is NOT on PyPI — installed directly from GitHub on the same branch as this PR.
-        # On push to main (after openai#31 merges), this installs from main automatically.
+        # Installs the runtime dep from main. The previous feat-branch reference
+        # broke when openai#32 (feat/m2-openai branch) was merged and its branch
+        # deleted on 2026-05-08. Updated 2026-05-09 to install from main.
         #
         # If this step fails with a 404/auth error the repo is private — add a PAT
         # with repo-read scope as a secret named GH_PAT and use:
         #   git+https://${{ secrets.GH_PAT }}@github.com/...
         run: |
           uv pip install \
-            "amplifier-module-provider-openai @ git+https://github.com/microsoft/amplifier-module-provider-openai.git@feat/m2-openai"
+            "amplifier-module-provider-openai @ git+https://github.com/microsoft/amplifier-module-provider-openai.git@main"
 
       - name: pytest (canonical key tests)
         # Runs the llm:response canonical key conformance tests — these verify the
