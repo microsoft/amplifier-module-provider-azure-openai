@@ -29,6 +29,9 @@ class FakeHooks:
     def __init__(self):
         self.events: list[tuple[str, dict]] = []
 
+    def register(self, event: str, handler) -> None:
+        pass  # no-op — tests that call mount() don't need hook delivery
+
     async def emit(self, name: str, payload: dict) -> None:
         self.events.append((name, payload))
 
@@ -115,6 +118,9 @@ def test_mount_returns_cleanup_and_closes_client():
             self, slot: str, provider: AzureOpenAIProvider, name: str
         ) -> None:
             self.mounted.append((slot, provider, name))
+
+        def register_contributor(self, *args, **kwargs) -> None:
+            pass  # no-op — test only checks mount lifecycle, not contributor delivery
 
     coordinator = StubCoordinator()
     cleanup = asyncio.run(

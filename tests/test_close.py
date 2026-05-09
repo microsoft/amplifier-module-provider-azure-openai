@@ -22,6 +22,9 @@ class FakeHooks:
     def __init__(self):
         self.events: list[tuple[str, dict]] = []
 
+    def register(self, event: str, handler) -> None:
+        pass  # no-op — tests that call mount() don't need hook delivery
+
     async def emit(self, name: str, payload: dict) -> None:
         self.events.append((name, payload))
 
@@ -33,6 +36,9 @@ class FakeCoordinator:
 
     async def mount(self, slot: str, provider, name: str) -> None:
         self.mounted.append((slot, provider, name))
+
+    def register_contributor(self, *args, **kwargs) -> None:
+        pass  # no-op — tests that call mount() don't need contributor delivery
 
 
 def _make_provider(

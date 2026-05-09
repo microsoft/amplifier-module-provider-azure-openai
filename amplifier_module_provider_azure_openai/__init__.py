@@ -13,6 +13,7 @@ import logging
 import os
 from collections.abc import Awaitable
 from collections.abc import Callable
+from decimal import Decimal
 from typing import Any
 
 from amplifier_core import ConfigField
@@ -20,6 +21,8 @@ from amplifier_core import ModelInfo
 from amplifier_core import ModuleCoordinator
 from amplifier_core import ProviderInfo
 from openai import AsyncOpenAI
+
+from ._cost import compute_cost
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +179,16 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         return None
 
     # Create the provider instance using the dynamically loaded class
+    _totals: dict = {"cost_usd": None, "has_data": False}
+
+    async def _accumulate(event: str, data: dict) -> None:
+        raw = (data.get("usage") or {}).get("cost_usd")
+        if raw is not None:
+            _totals["cost_usd"] = (_totals["cost_usd"] or Decimal("0")) + (
+                raw if isinstance(raw, Decimal) else Decimal(str(raw))
+            )
+            _totals["has_data"] = True
+
     provider = _create_azure_provider(
         OpenAIProviderClass,
         base_url=base_url,
@@ -191,6 +204,12 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         base_url,
         api_version,
         auth_summary,
+    )
+    coordinator.hooks.register("llm:response", _accumulate)
+    coordinator.register_contributor(
+        "session.cost",
+        "provider-azure-openai",
+        lambda: {"cost_usd": str(_totals["cost_usd"]) if _totals["cost_usd"] is not None else None} if _totals["has_data"] else None,
     )
 
     async def cleanup():
@@ -235,7 +254,6 @@ def _create_azure_provider(
             self._base_url = base_url
             self._token_provider = token_provider
             self._azure_client: AsyncOpenAI | None = None
-
             # Call parent with no client - we override the client property
             super().__init__(
                 api_key=api_key, config=config, coordinator=coordinator, client=None
@@ -295,6 +313,56 @@ def _create_azure_provider(
             Returns empty list since Azure deployments are customer-specific.
             """
             return []
+
+        def _convert_to_chat_response(self, response: Any) -> Any:
+            """Override: add Azure-specific PTU short-circuit cost stamping.
+
+            PTU deployments have no marginal per-token cost; cost_usd is set to None.
+            PAYG deployments use Azure PAYG rates from ._cost.compute_cost.
+
+            The PTU check happens here (at the call site), not inside compute_cost,
+            because compute_cost has no access to deployment configuration.
+            """
+            # Get base response (content, tool calls, usage) from OpenAI provider
+            chat_response = super()._convert_to_chat_response(response)
+
+            if chat_response.usage is None:
+                return chat_response
+
+            # PTU short-circuit: no per-token cost for PTU deployments
+            if self.config.get("deployment_type") == "PTU" or response.usage is None:
+                cost = None
+            else:
+                _usage_obj = response.usage
+                # Azure responses use prompt_tokens/completion_tokens;
+                # fall back to input_tokens/output_tokens for compatibility.
+                _prompt_tokens = getattr(
+                    _usage_obj, "prompt_tokens", getattr(_usage_obj, "input_tokens", 0)
+                )
+                _completion_tokens = getattr(
+                    _usage_obj,
+                    "completion_tokens",
+                    getattr(_usage_obj, "output_tokens", 0),
+                )
+                # Azure: prompt_tokens_details.cached_tokens; fall back to
+                # input_tokens_details.cached_tokens for compat.
+                _ptd = getattr(_usage_obj, "prompt_tokens_details", None)
+                _itd = getattr(_usage_obj, "input_tokens_details", None)
+                _cached_tokens = (
+                    getattr(_ptd, "cached_tokens", None)
+                    or getattr(_itd, "cached_tokens", None)
+                    or 0
+                )
+                cost = compute_cost(
+                    getattr(response, "model", ""),
+                    prompt_tokens=_prompt_tokens,
+                    completion_tokens=_completion_tokens,
+                    cached_tokens=_cached_tokens,
+                )
+
+            # Override cost_usd (replaces parent's OpenAI cost calculation with Azure-specific)
+            usage = chat_response.usage.model_copy(update={"cost_usd": cost})
+            return chat_response.model_copy(update={"usage": usage})
 
         async def close(self) -> None:
             """Close the underlying Azure OpenAI client to prevent resource leaks."""
