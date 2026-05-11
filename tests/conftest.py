@@ -16,10 +16,11 @@ import pytest
 class MockOpenAIProvider:
     """Minimal stand-in for OpenAIProvider to test Azure-specific overrides."""
 
-    def __init__(self, *, api_key=None, config=None, coordinator=None, client=None):
+    def __init__(self, *, api_key=None, config=None, coordinator=None, client=None, add_cost=None):
         self._api_key = api_key
         self.config = config or {}
         self.coordinator = coordinator
+        self._add_cost = add_cost or (lambda cost: None)
 
 
 @pytest.fixture
