@@ -181,11 +181,10 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
     # Create the provider instance using the dynamically loaded class
     _totals: dict = {"cost_usd": None, "has_data": False}
 
-    async def _accumulate(event: str, data: dict) -> None:
-        raw = (data.get("usage") or {}).get("cost_usd")
-        if raw is not None:
+    def _add_cost(cost) -> None:
+        if cost is not None:
             _totals["cost_usd"] = (_totals["cost_usd"] or Decimal("0")) + (
-                raw if isinstance(raw, Decimal) else Decimal(str(raw))
+                cost if isinstance(cost, Decimal) else Decimal(str(cost))
             )
             _totals["has_data"] = True
 
@@ -196,6 +195,7 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         token_provider=token_provider,
         config=config,
         coordinator=coordinator,
+        add_cost=_add_cost,
     )
 
     await coordinator.mount("providers", provider, name=provider.name)
@@ -205,11 +205,18 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         api_version,
         auth_summary,
     )
-    coordinator.hooks.register("llm:response", _accumulate)
     coordinator.register_contributor(
         "session.cost",
         "provider-azure-openai",
-        lambda: {"cost_usd": str(_totals["cost_usd"]) if _totals["cost_usd"] is not None else None} if _totals["has_data"] else None,
+        lambda: (
+            {
+                "cost_usd": str(_totals["cost_usd"])
+                if _totals["cost_usd"] is not None
+                else None
+            }
+            if _totals["has_data"]
+            else None
+        ),
     )
 
     async def cleanup():
@@ -227,6 +234,7 @@ def _create_azure_provider(
     token_provider: Callable[[], Awaitable[str]] | None = None,
     config: dict[str, Any] | None = None,
     coordinator: ModuleCoordinator | None = None,
+    add_cost=None,
 ) -> Any:
     """Create an AzureOpenAIProvider instance that inherits from OpenAIProvider.
 
@@ -248,15 +256,28 @@ def _create_azure_provider(
             token_provider: Callable[[], Awaitable[str]] | None = None,
             config: dict[str, Any] | None = None,
             coordinator: ModuleCoordinator | None = None,
+            add_cost=None,
         ):
             """Initialize Azure OpenAI provider."""
             # Store for lazy client creation
             self._base_url = base_url
             self._token_provider = token_provider
             self._azure_client: AsyncOpenAI | None = None
+            # Azure overrides parent's cost in _convert_to_chat_response (PTU
+            # short-circuit + Azure-specific rates). Parent's self._add_cost(parent_cost)
+            # call fires inside _convert_to_chat_response BEFORE our override runs, so
+            # we hand the parent a no-op and accumulate the Azure-corrected cost
+            # ourselves at the right ordering point.
+            self._azure_add_cost = (
+                add_cost if add_cost is not None else (lambda _c: None)
+            )
             # Call parent with no client - we override the client property
             super().__init__(
-                api_key=api_key, config=config, coordinator=coordinator, client=None
+                api_key=api_key,
+                config=config,
+                coordinator=coordinator,
+                client=None,
+                add_cost=lambda _c: None,
             )
 
             # Override base_url from parent
@@ -362,6 +383,11 @@ def _create_azure_provider(
 
             # Override cost_usd (replaces parent's OpenAI cost calculation with Azure-specific)
             usage = chat_response.usage.model_copy(update={"cost_usd": cost})
+            # Accumulate at this point with the Azure-corrected cost. Parent's
+            # self._add_cost is a no-op (see __init__) precisely so this is where
+            # accumulation happens. _azure_add_cost handles cost=None as a no-op,
+            # so PTU deployments naturally contribute nothing.
+            self._azure_add_cost(cost)
             return chat_response.model_copy(update={"usage": usage})
 
         async def close(self) -> None:
@@ -376,6 +402,7 @@ def _create_azure_provider(
         token_provider=token_provider,
         config=config,
         coordinator=coordinator,
+        add_cost=add_cost,
     )
 
 

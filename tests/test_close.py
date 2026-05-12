@@ -12,10 +12,11 @@ from amplifier_module_provider_azure_openai import mount
 class MockOpenAIProvider:
     """Minimal stand-in for OpenAIProvider base class."""
 
-    def __init__(self, *, api_key=None, config=None, coordinator=None, client=None):
+    def __init__(self, *, api_key=None, config=None, coordinator=None, client=None, add_cost=None):
         self._api_key = api_key
         self.config = config or {}
         self.coordinator = coordinator
+        self._add_cost = add_cost or (lambda cost: None)
 
 
 class FakeHooks:
