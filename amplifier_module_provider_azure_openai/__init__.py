@@ -267,7 +267,7 @@ def _create_azure_provider(
             # short-circuit + Azure-specific rates). Parent's self._add_cost(parent_cost)
             # call fires inside _convert_to_chat_response BEFORE our override runs, so
             # we hand the parent a no-op and accumulate the Azure-corrected cost
-            # ourselves at the right ordering point. See amplifier-support#229.
+            # ourselves at the right ordering point.
             self._azure_add_cost = (
                 add_cost if add_cost is not None else (lambda _c: None)
             )

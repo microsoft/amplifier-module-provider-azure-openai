@@ -1,6 +1,6 @@
 """Tests for cost-callback ordering in Azure's _convert_to_chat_response override.
 
-Regression coverage for amplifier-support#229.
+Regression coverage for cross-provider cost eavesdropping fix.
 
 The M2 cost-stamping change in provider-openai (commit 74ba9b6, "feat(m2):
 provider-openai cost stamping (#32)") added `self._add_cost(cost)` inside the
