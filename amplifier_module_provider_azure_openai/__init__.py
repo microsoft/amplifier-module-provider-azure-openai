@@ -20,6 +20,7 @@ from amplifier_core import ConfigField
 from amplifier_core import ModelInfo
 from amplifier_core import ModuleCoordinator
 from amplifier_core import ProviderInfo
+from amplifier_core.models import HookResult
 from openai import AsyncOpenAI
 
 from ._cost import compute_cost
@@ -205,6 +206,43 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         api_version,
         auth_summary,
     )
+
+    # Issue #321: break the Azure OpenAI Responses API response chain whenever
+    # the context is compacted, so the provider stops rebuilding the
+    # pre-compaction server-side context via previous_response_id (which drives
+    # unbounded input-token growth -> context_length_exceeded). The reset flag
+    # and the request-path check live in the shared OpenAI provider base class
+    # that this provider subclasses; only the subscription that flips the flag
+    # has to be wired here, because this module mounts the provider through its
+    # own mount() and never runs the base provider's mount(). The default
+    # context module emits the literal "context:compaction"; other context
+    # managers use the kernel's "context:pre_compact"/"context:post_compact".
+    # Subscribe to all three so the fix survives a swapped context module.
+    async def _on_compaction(event: str, data: dict[str, Any]) -> HookResult:
+        provider._reset_chain_on_next_request = True
+        logger.info(
+            "[PROVIDER] Compaction event '%s' received; breaking Azure OpenAI "
+            "response chain on next request (Issue #321).",
+            event,
+        )
+        return HookResult()
+
+    if hasattr(coordinator, "hooks") and coordinator.hooks is not None:
+        for _compaction_event in (
+            "context:compaction",
+            "context:pre_compact",
+            "context:post_compact",
+        ):
+            try:
+                coordinator.hooks.on(_compaction_event, _on_compaction)
+            except Exception as sub_err:  # pragma: no cover - defensive
+                logger.warning(
+                    "[PROVIDER] Could not subscribe to '%s' for Issue #321 "
+                    "chain reset: %s",
+                    _compaction_event,
+                    sub_err,
+                )
+
     coordinator.register_contributor(
         "session.cost",
         "provider-azure-openai",
