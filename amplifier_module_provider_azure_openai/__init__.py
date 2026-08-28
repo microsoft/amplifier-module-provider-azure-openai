@@ -31,6 +31,39 @@ logger = logging.getLogger(__name__)
 _OpenAIProvider: type | None = None
 _openai_import_attempted: bool = False
 
+# This module's own config keys, declared to provider-openai's unknown-key
+# sweep (added in amplifier-module-provider-openai#69, extension point added
+# in #70) via `OpenAIProvider.EXTRA_KNOWN_CONFIG_KEYS`. AzureOpenAIProvider
+# SUBCLASSES OpenAIProvider and passes its own config straight through the
+# same `config` dict the parent constructor reads (see
+# `_create_azure_provider` below), so without this declaration every one of
+# these legitimate keys was flagged as "unrecognized" -- a false positive on
+# valid config. Audited against every `config.get(...)` / `self.config.get(...)`
+# call site in this module:
+#   - azure_endpoint, api_key, api_version, use_managed_identity,
+#     use_default_credential, managed_identity_client_id: read in mount()
+#   - deployment_type: read in _convert_to_chat_response (PTU short-circuit)
+#   - default_deployment: legacy alias for default_model, read in __init__
+#   - deployment_name: not read directly (Azure's unified /openai/v1/ API
+#     doesn't route by deployment name in the URL), but it IS a documented
+#     ConfigField (see _get_azure_provider_info) offered by the setup
+#     wizard, so declaring it here keeps that documented, wizard-offered
+#     value from warning as "unrecognized" too.
+# `api_key` is omitted: it's already an infrastructure key known to
+# provider-openai (`_INFRASTRUCTURE_CONFIG_KEYS`).
+_AZURE_EXTRA_CONFIG_KEYS: frozenset[str] = frozenset(
+    {
+        "azure_endpoint",
+        "api_version",
+        "use_managed_identity",
+        "use_default_credential",
+        "managed_identity_client_id",
+        "deployment_name",
+        "deployment_type",
+        "default_deployment",
+    }
+)
+
 
 def _get_openai_provider_class() -> type | None:
     """Lazily import and cache the OpenAI provider class.
@@ -285,6 +318,9 @@ def _create_azure_provider(
 
         name = "azure-openai"
         api_label = "Azure OpenAI"
+        # Declares this module's own config keys to the parent's
+        # unknown-config-key sweep -- see `_AZURE_EXTRA_CONFIG_KEYS` above.
+        EXTRA_KNOWN_CONFIG_KEYS = _AZURE_EXTRA_CONFIG_KEYS
 
         def __init__(
             self,
