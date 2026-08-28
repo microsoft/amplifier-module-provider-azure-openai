@@ -361,9 +361,18 @@ def _create_azure_provider(
                 "api_key" if api_key else "token_provider" if token_provider else "none"
             )
 
-            # Azure deployments commonly use "default_deployment" config keys
-            self.default_model = self.config.get("default_model") or self.config.get(
-                "default_deployment", "gpt-5.4"
+            # Fallback chain: default_model (canonical) -> deployment_name
+            # (setup-wizard-written configs use this key exclusively -- see
+            # app-cli's configure_provider() short-circuit, which sets
+            # default_model FROM deployment_name at prompt time, but a
+            # hand-written config that sets only deployment_name would
+            # otherwise silently fall through to the hardcoded default) ->
+            # default_deployment (legacy alias) -> hardcoded default.
+            self.default_model = (
+                self.config.get("default_model")
+                or self.config.get("deployment_name")
+                or self.config.get("default_deployment")
+                or "gpt-5.4"
             )
 
             if base_url:
