@@ -41,29 +41,31 @@ class FakeCoordinator:
         self.hooks = FakeHooks()
 
 
-def test_extended_thinking_matches_openai_behaviour():
+def test_extended_thinking_forces_high_effort_without_budget_arithmetic():
+    """The extended_thinking -> high-effort forcing behaviour is PRESERVED in
+    the stateless-only parent, but the budget arithmetic
+    (thinking_budget_tokens/_buffer -> max_output_tokens) was removed. Set
+    max_output_tokens directly for a larger budget."""
     from amplifier_module_provider_openai import OpenAIProvider
 
     provider = _create_azure_provider(
         OpenAIProvider,
         base_url="https://example.openai.azure.com/openai/v1/",
         api_key="test-key",
-        config={"max_tokens": 1024, "use_streaming": False},
+        config={"max_output_tokens": 1024, "use_streaming": False},
     )
     provider.client.responses.create = AsyncMock(return_value=DummyResponse())
 
     messages = [Message(role="user", content="Hello")]
     request = ChatRequest(messages=messages)
 
-    asyncio.run(
-        provider.complete(request, extended_thinking=True, thinking_budget_tokens=6000)
-    )
+    asyncio.run(provider.complete(request, extended_thinking=True))
 
     provider.client.responses.create.assert_awaited()
     call_kwargs = provider.client.responses.create.await_args_list[0].kwargs
 
     assert call_kwargs["reasoning"]["effort"] == "high"
-    assert call_kwargs["max_output_tokens"] == 7024
+    assert call_kwargs["max_output_tokens"] == 1024
 
 
 def test_tool_call_repair_emits_azure_provider_name():
