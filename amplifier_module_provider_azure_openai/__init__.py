@@ -555,9 +555,21 @@ class AzureOpenAIProvider:
 
 
 def _get_bool(config: dict[str, Any], key: str, env_value: str | None) -> bool:
-    """Resolve a boolean configuration value from config dict or environment."""
+    """Resolve a boolean configuration value from config dict or environment.
+
+    Config wizards persist booleans as the strings "true"/"false" --
+    ``bool("false")`` is ``True`` in Python, so a naive ``bool(config[key])``
+    cast silently inverted the user's intent (live bug on the
+    use_managed_identity managed-identity path). Parse the string content
+    instead of relying on truthiness.
+    """
     if key in config:
-        return bool(config[key])
+        value = config[key]
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"true", "1", "yes"}
+        return bool(value)
     if env_value is None:
         return False
     return env_value.lower() in {"true", "1", "yes"}
