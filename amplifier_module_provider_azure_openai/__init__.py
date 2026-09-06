@@ -9,6 +9,7 @@ __all__ = ["mount", "AzureOpenAIProvider"]
 # Amplifier module metadata
 __amplifier_module_type__ = "provider"
 
+import asyncio
 import logging
 import os
 from collections.abc import Awaitable
@@ -50,8 +51,20 @@ _openai_import_attempted: bool = False
 #     value from warning as "unrecognized" too.
 # `api_key` is omitted: it's already an infrastructure key known to
 # provider-openai (`_INFRASTRUCTURE_CONFIG_KEYS`).
+# Ceiling on how long close() waits for the HTTP client to shut down. An
+# httpx transport with a wedged connection can leave AsyncOpenAI.close()
+# pending indefinitely; without a bound, that hangs session cleanup for the
+# whole process. See _AzureOpenAIProvider.close().
+DEFAULT_CLOSE_TIMEOUT = 5.0  # seconds
+
 _AZURE_EXTRA_CONFIG_KEYS: frozenset[str] = frozenset(
     {
+        # Declared here because THIS module reads `close_timeout` in its own
+        # __init__ (see _create_azure_provider) rather than inheriting the
+        # parent's value -- the base class is resolved dynamically and may be
+        # an older provider-openai that has never heard of the key. Declaring
+        # it keeps the parent's unknown-key sweep quiet either way.
+        "close_timeout",
         "azure_endpoint",
         "api_version",
         "use_managed_identity",
@@ -261,8 +274,13 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
     )
 
     async def cleanup():
-        if provider._azure_client is not None:
-            await provider._azure_client.close()
+        # Delegate rather than re-implement: close() is the bounded path
+        # (asyncio.wait_for around the client close). Duplicating the close
+        # here is what left session cleanup unbounded even after close()
+        # itself was fixed. close() reads _azure_client directly, never the
+        # lazy-init `client` property, so cleanup still cannot construct a
+        # client just to destroy it.
+        await provider.close()
 
     return cleanup
 
@@ -307,6 +325,13 @@ def _create_azure_provider(
             self._base_url = base_url
             self._token_provider = token_provider
             self._azure_client: AsyncOpenAI | None = None
+            # Ceiling on how long close() will wait for the HTTP client to
+            # shut down before abandoning it. Read here rather than inherited:
+            # the base class is resolved dynamically at runtime and may be a
+            # provider-openai build that has no close_timeout of its own.
+            self._close_timeout: float = _get_float(
+                config or {}, "close_timeout", DEFAULT_CLOSE_TIMEOUT
+            )
             # Azure overrides parent's cost in _convert_to_chat_response (PTU
             # short-circuit + Azure-specific rates). Parent's self._add_cost(parent_cost)
             # call fires inside _convert_to_chat_response BEFORE our override runs, so
@@ -444,10 +469,43 @@ def _create_azure_provider(
             return chat_response.model_copy(update={"usage": usage})
 
         async def close(self) -> None:
-            """Close the underlying Azure OpenAI client to prevent resource leaks."""
-            if self._azure_client is not None:
-                await self._azure_client.close()
-                self._azure_client = None
+            """Close the Azure OpenAI client, within a time bound.
+
+            Bounded by ``self._close_timeout`` (config key ``close_timeout``,
+            default 5.0s). ``mount()``'s ``cleanup()`` delegates here, so an
+            unbounded await hangs Amplifier's session cleanup for the whole
+            process whenever the httpx transport has a wedged connection and
+            ``AsyncOpenAI.close()`` never returns.
+
+            ``asyncio.shield`` keeps the close running to completion if the
+            *enclosing* task is cancelled; ``asyncio.wait_for`` caps how long
+            we wait for it. On timeout we log a WARNING naming this provider
+            instance and the abandoned client, then return -- a slow close
+            must never become a hung session.
+
+            ``self._azure_client`` is cleared before the await so the
+            lazy-init ``client`` property rebuilds a fresh client on next
+            use, and so a client whose close raised or timed out is not left
+            behind to be reused.
+            """
+            client = self._azure_client
+            if client is None:
+                return
+            self._azure_client = None
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(client.close()), timeout=self._close_timeout
+                )
+            except TimeoutError:
+                logger.warning(
+                    "[PROVIDER] %s: HTTP client close did not complete within "
+                    "%.1fs; abandoning client %r. Its transport may leak until "
+                    "the process exits. Raise 'close_timeout' in this "
+                    "provider's config if a slow close is expected.",
+                    self.name,
+                    self._close_timeout,
+                    client,
+                )
 
     return _AzureOpenAIProvider(
         base_url=base_url,
@@ -552,6 +610,28 @@ class AzureOpenAIProvider:
         allowing provider discovery to succeed.
         """
         return _get_azure_provider_info()
+
+
+def _get_float(config: dict[str, Any], name: str, default: float) -> float:
+    """Resolve a float configuration value, warning and defaulting on garbage.
+
+    Same motivation as `_get_bool`: config wizards and settings.yaml persist
+    numbers as strings, so the value must be parsed rather than assumed.
+    """
+    value = config.get(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        logger.warning(
+            "[PROVIDER] Config key '%s' has invalid float value %r; "
+            "defaulting to %s.",
+            name,
+            value,
+            default,
+        )
+        return default
 
 
 def _get_bool(config: dict[str, Any], key: str, env_value: str | None) -> bool:

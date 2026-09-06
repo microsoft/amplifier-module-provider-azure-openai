@@ -124,6 +124,10 @@ class TestAzureUnknownConfigKeyFalsePositive:
         assert provider.EXTRA_KNOWN_CONFIG_KEYS == _AZURE_EXTRA_CONFIG_KEYS
         assert _AZURE_EXTRA_CONFIG_KEYS == frozenset(
             {
+                # Read by THIS module's __init__ (bounded close()), not
+                # inherited -- the base class is resolved dynamically and may
+                # be a provider-openai build that does not know the key.
+                "close_timeout",
                 "azure_endpoint",
                 "api_version",
                 "use_managed_identity",
