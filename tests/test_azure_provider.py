@@ -141,9 +141,14 @@ def test_mount_returns_cleanup_and_closes_client():
     assert slot == "providers"
     assert name == "azure-openai"
 
-    provider.client.close = AsyncMock()
+    # Capture the client BEFORE cleanup: cleanup() now delegates to the
+    # bounded close(), which nils _azure_client, so re-reading the lazy
+    # `client` property afterwards would build a second, different client.
+    client = provider.client
+    client.close = AsyncMock()
     asyncio.run(cleanup())
-    provider.client.close.assert_awaited_once()
+    client.close.assert_awaited_once()
+    assert provider._azure_client is None
 
 
 def test_incomplete_tool_call_removed_for_azure():
