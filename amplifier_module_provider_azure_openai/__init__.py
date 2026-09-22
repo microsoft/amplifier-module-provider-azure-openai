@@ -10,11 +10,13 @@ __all__ = ["mount", "AzureOpenAIProvider"]
 __amplifier_module_type__ = "provider"
 
 import asyncio
+import hashlib
 import logging
 import os
 from collections.abc import Awaitable
 from collections.abc import Callable
 from decimal import Decimal
+from urllib.parse import urlparse
 from typing import Any
 
 from amplifier_core import ConfigField
@@ -73,6 +75,7 @@ _AZURE_EXTRA_CONFIG_KEYS: frozenset[str] = frozenset(
         "deployment_name",
         "deployment_type",
         "default_deployment",
+        "native_compaction",
     }
 )
 
@@ -404,7 +407,68 @@ def _create_azure_provider(
 
         def get_info(self) -> ProviderInfo:
             """Get provider metadata."""
-            return _get_azure_provider_info()
+            info = _get_azure_provider_info()
+            if self.supports_native_compaction():
+                info = info.model_copy(update={"capabilities": [*info.capabilities, "native_compaction"]})
+            return info
+
+        def supports_native_compaction(self) -> bool:
+            """Opt into Azure's documented v1 operation for a suitable deployment.
+
+            Deployment names do not identify their backing model. The caller
+            explicitly enables this mechanism; no automatic policy is installed.
+            Counting is a separate capability and is deliberately not claimed.
+            """
+            if not _get_bool(self.config, "native_compaction", None):
+                return False
+            parsed = urlparse(str(self._base_url or ""))
+            host = parsed.hostname or ""
+            return (
+                parsed.scheme == "https" and parsed.port in (None, 443)
+                and host.endswith((".openai.azure.com", ".services.ai.azure.com"))
+                and parsed.path.rstrip("/") == "/openai/v1"
+                and callable(getattr(base_class, "compact_context", None))
+                and callable(getattr(self.client.responses, "compact", None))
+            )
+
+        def _compaction_endpoint_id(self) -> str:
+            return hashlib.sha256(str(self._base_url).rstrip("/").encode()).hexdigest()
+
+        def _has_nontext_budget_input(self, params):
+            # Ciphertext length cannot estimate its represented token count.
+            items = params.get("input")
+            if isinstance(items, list) and any(
+                isinstance(item, dict) and item.get("type") == "compaction" for item in items
+            ):
+                return True
+            return super()._has_nontext_budget_input(params)
+
+        def validate_compacted_context(self, message: dict[str, Any]) -> bool:
+            metadata = message.get("metadata") or {}
+            return (
+                self.supports_native_compaction()
+                and metadata.get("azure-openai:compaction_endpoint") == self._compaction_endpoint_id()
+                and super().validate_compacted_context(message)
+            )
+
+        async def compact_context(self, request):
+            if not self.supports_native_compaction():
+                raise NotImplementedError("Enable native_compaction for a supported Azure v1 deployment")
+            result = await super().compact_context(request)
+            result["message"]["metadata"]["azure-openai:compaction_endpoint"] = self._compaction_endpoint_id()
+            return result
+
+        def _assemble_initial_responses_params(self, request, **kwargs):
+            # Validate provenance on both count/compact and ordinary generation.
+            # Parent serialization preserves the entire returned canonical window.
+            for message in request.messages:
+                metadata = message.metadata or {}
+                if "openai:compaction" in metadata and (
+                    not self.supports_native_compaction()
+                    or metadata.get("azure-openai:compaction_endpoint") != self._compaction_endpoint_id()
+                ):
+                    raise ValueError("Native compacted context belongs to another Azure resource")
+            return super()._assemble_initial_responses_params(request, **kwargs)
 
         async def list_models(self) -> list[ModelInfo]:
             """List available Azure OpenAI models.
