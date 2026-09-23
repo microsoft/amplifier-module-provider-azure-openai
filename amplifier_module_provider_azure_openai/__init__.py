@@ -21,7 +21,7 @@ from amplifier_core import ConfigField
 from amplifier_core import ModelInfo
 from amplifier_core import ModuleCoordinator
 from amplifier_core import ProviderInfo
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, Timeout
 
 from ._cost import compute_cost
 
@@ -390,6 +390,7 @@ def _create_azure_provider(
                     )
                 self._azure_client = AsyncOpenAI(
                     base_url=self._base_url,
+                    timeout=Timeout(getattr(self, "timeout", None), connect=5.0, pool=5.0),
                     # When using managed identity, self._token_provider is an async
                     # callable (not a string). This works because the OpenAI SDK
                     # (>= 1.0) natively accepts Callable as api_key:
@@ -532,7 +533,7 @@ def _get_azure_provider_info() -> ProviderInfo:
             "model": "gpt-5.4",
             "max_tokens": 16384,
             "temperature": None,
-            "timeout": 600.0,
+            "timeout": None,
             "context_window": 272000,
             "max_output_tokens": 128000,
         },

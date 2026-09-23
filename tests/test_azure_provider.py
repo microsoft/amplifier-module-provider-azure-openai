@@ -2,7 +2,7 @@ import asyncio
 import inspect
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from amplifier_core import ModuleCoordinator
 from amplifier_core.message_models import ChatRequest
@@ -213,6 +213,7 @@ def test_token_provider_callable_passed_as_api_key(mock_openai_provider_cls):
         MockAsyncOpenAI.assert_called_once_with(
             base_url="https://example.openai.azure.com/openai/v1/",
             api_key=fake_token_provider,
+            timeout=ANY,
             max_retries=0,
         )
 

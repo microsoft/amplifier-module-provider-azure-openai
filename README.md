@@ -486,3 +486,9 @@ trademarks or logos is subject to and must follow
 [Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/legal/intellectualproperty/trademarks/usage/general).
 Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
 Any use of third-party trademarks or logos are subject to those third-party's policies.
+
+### Waiting for model work
+
+The default `timeout` is `null`: model work waits for completion, explicit cancellation, or a provider/transport error. Set a numeric `timeout` in seconds to opt into a deadline. Existing cleanup limits are unchanged.
+
+Azure inherits completion, streaming, and background polling wait behavior from `provider-openai`. Deploy with the corresponding OpenAI provider wait-policy update; an older parent can still impose its own deadline. Native compaction remains capability-gated and is not advertised for Azure endpoints.
