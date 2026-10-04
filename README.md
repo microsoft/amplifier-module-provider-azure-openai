@@ -462,6 +462,31 @@ logging.getLogger("amplifier_module_provider_azure_openai").setLevel(logging.DEB
 - **Rate Limits**: Azure-specific quotas per deployment
 - **Regional Availability**: Limited to Azure regions with OpenAI service
 
+## Native compaction
+
+Azure's v1 Responses API supports
+[on-demand compaction](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses?view=foundry-classic#compact-a-response).
+Set `native_compaction: true` only for a deployment that supports it. The default
+is off: deployment names are arbitrary and cannot prove the underlying model's
+capabilities. Recognized HTTPS Azure v1 resource endpoints are required.
+
+With a current `provider-openai` installed, `compact_context(ChatRequest)` uses
+the inherited Responses compaction transport and preserves the entire returned
+canonical window for continuation. The provider adds an endpoint fingerprint so
+a checkpoint cannot silently move to a different Azure resource. It does not
+introduce thresholds, a summarization prompt, or automatic compaction.
+
+**Compaction and authoritative counting are separate capabilities.** This adapter
+does not advertise an Azure `responses/input_tokens` counter. Encrypted compacted
+state is never estimated by ciphertext length. Context-managed therefore continues
+to use semantic compaction automatically until an authoritative counter is
+available; direct callers can use the native mechanism with their own admission
+strategy. This flag does not enable Azure's server-managed threshold compaction.
+
+Tests exercise the real OpenAI base class with mocked Azure transport, complete
+window retention, endpoint binding, explicit opt-in, and unavailable opaque-state
+estimates. No live Azure deployment was available for qualification.
+
 ## Contributing
 
 > [!NOTE]
