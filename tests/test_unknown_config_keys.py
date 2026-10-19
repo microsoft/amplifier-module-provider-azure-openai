@@ -132,6 +132,8 @@ class TestAzureUnknownConfigKeyFalsePositive:
                 "api_version",
                 "use_managed_identity",
                 "use_default_credential",
+                "azure_ad_token_file",
+                "chat_enabled",
                 "managed_identity_client_id",
                 "deployment_name",
                 "deployment_type",

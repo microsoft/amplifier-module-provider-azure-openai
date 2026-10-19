@@ -69,6 +69,8 @@ _AZURE_EXTRA_CONFIG_KEYS: frozenset[str] = frozenset(
         "api_version",
         "use_managed_identity",
         "use_default_credential",
+        "chat_enabled",
+        "azure_ad_token_file",
         "managed_identity_client_id",
         "deployment_name",
         "deployment_type",
@@ -180,6 +182,17 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
 
     if api_key:
         auth_summary = "api key"
+    elif config.get("azure_ad_token_file"):
+        from pathlib import Path
+        import json
+        import time
+        token_path = Path(config["azure_ad_token_file"]).expanduser()
+        async def token_provider():
+            record = json.loads(await asyncio.to_thread(token_path.read_text))
+            if float(record.get("expires_on", 0)) <= time.time()+30:
+                raise ValueError("Azure account token expired; refresh the configured credential file")
+            return record["accessToken"]
+        auth_summary = "host-managed Entra token file"
     elif use_managed_identity or use_default_credential:
         if not _is_azure_identity_available():
             logger.error(
@@ -214,7 +227,7 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
             )
 
             async def async_token_provider() -> str:
-                return sync_token_provider()
+                return await asyncio.to_thread(sync_token_provider)
 
             token_provider = async_token_provider
         except Exception as exc:  # pragma: no cover - defensive logging path
@@ -244,7 +257,23 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         add_cost=_add_cost,
     )
 
-    await coordinator.mount("providers", provider, name=provider.name)
+    decision_removals, decision_transports = [], []
+    if (config.get("decisions") or {}).get("enabled") is True:
+        from .decisions import FoundryDecisions
+        from amplifier_decisions.runtime import register
+        from amplifier_decisions.config import configured_backends
+        try:
+            for identity, row in configured_backends(config, "azure-decisions").items():
+                transport = FoundryDecisions(provider, row, coordinator)
+                decision_transports.append(transport)
+                decision_removals.append(register(coordinator, identity, transport.backend))
+        except Exception:
+            for remove in decision_removals: await remove()
+            for transport in decision_transports: await transport.close()
+            await provider.close()
+            raise
+    if config.get("chat_enabled", True) is not False:
+        await coordinator.mount("providers", provider, name=provider.name)
     logger.info(
         "Mounted AzureOpenAIProvider (Responses API, endpoint: %s, version: %s, auth: %s)",
         base_url,
@@ -280,6 +309,8 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         # itself was fixed. close() reads _azure_client directly, never the
         # lazy-init `client` property, so cleanup still cannot construct a
         # client just to destroy it.
+        for remove in decision_removals: await remove()
+        for transport in decision_transports: await transport.close()
         await provider.close()
 
     return cleanup
@@ -403,6 +434,11 @@ def _create_azure_provider(
                 )
             return self._azure_client
 
+        @staticmethod
+        def get_decision_info():
+            from .decisions import decision_info
+            return decision_info()
+
         def get_info(self) -> ProviderInfo:
             """Get provider metadata."""
             return _get_azure_provider_info()
@@ -414,7 +450,7 @@ def _create_azure_provider(
             """
             return []
 
-        def _convert_to_chat_response(self, response: Any) -> Any:
+        def _convert_to_chat_response(self, response: Any, **kwargs) -> Any:
             """Override: add Azure-specific PTU short-circuit cost stamping.
 
             PTU deployments have no marginal per-token cost; cost_usd is set to None.
@@ -424,7 +460,7 @@ def _create_azure_provider(
             because compute_cost has no access to deployment configuration.
             """
             # Get base response (content, tool calls, usage) from OpenAI provider
-            chat_response = super()._convert_to_chat_response(response)
+            chat_response = super()._convert_to_chat_response(response, **kwargs)
 
             if chat_response.usage is None:
                 return chat_response
@@ -602,6 +638,11 @@ class AzureOpenAIProvider:
 
     name = "azure-openai"
     api_label = "Azure OpenAI"
+
+    @staticmethod
+    def get_decision_info():
+        from .decisions import decision_info
+        return decision_info()
 
     @staticmethod
     def get_info() -> ProviderInfo:
