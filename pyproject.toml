@@ -21,7 +21,7 @@ dependencies = [
 provider-azure-openai = "amplifier_module_provider_azure_openai:mount"
 
 [project.optional-dependencies]
-decisions = ["amplifier-lib-decisions>=0.1.0.dev0"]
+decisions = ["amplifier-lib-decisions @ git+https://github.com/microsoft/amplifier-lib-decisions@main"]
 azure = [
     "azure-identity>=1.15.0",
 ]
