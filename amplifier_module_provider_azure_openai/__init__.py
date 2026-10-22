@@ -253,7 +253,10 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         base_url=base_url,
         api_key=api_key,
         token_provider=token_provider,
-        config=config,
+        # Keep the resolved account resource available to optional adapters,
+        # including when it came from either supported environment variable.
+        # Copy the caller's settings; decision-specific endpoints still override it.
+        config={**config, "azure_endpoint": azure_endpoint},
         coordinator=coordinator,
         add_cost=_add_cost,
     )
