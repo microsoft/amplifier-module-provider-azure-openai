@@ -17,7 +17,8 @@ providers:
     config:
       azure_endpoint: https://your-resource.services.ai.azure.com
       use_default_credential: true
-      chat_enabled: false  # Use this account only for optional capabilities.
+      default_model: your-chat-deployment
+      chat_enabled: true  # Default: mount Azure chat alongside optional decisions.
       decisions:
         enabled: true
         backends:
@@ -26,8 +27,19 @@ providers:
             model: your-decision-deployment
 ```
 
-`chat_enabled` defaults to true. When false, no chat provider is mounted; keep an
-ordinary chat provider configured. Named decision models share the account.
+Keep `chat_enabled` true (the default) to mount the Azure chat provider alongside
+its optional decision backends. Named decision models share the account and do
+not replace the chat deployment.
+
+The `chat_enabled: false` path is **not supported by Core 2.0.2's provider mount
+contract**: it skips chat-provider registration, and Core rejects a provider
+entry that installs no new chat-provider instance. Configuring another ordinary
+provider does not make that Azure declaration valid. Capability-only activation
+requires a separately designed and qualified lifecycle, including failed-mount
+rollback; do not rely on a decision backend left registered by a rejected mount.
+This compatibility limit does not change the ordinary Azure chat-plus-decisions
+path or its endpoint and authentication behavior.
+
 The service uses `/providers/microsoft/v1/systemone`, a resource API separate
 from the chat SDK route. An optional decision `endpoint` overrides the account
 endpoint. Portal `/models` URLs are normalized only for Foundry resource hosts;
