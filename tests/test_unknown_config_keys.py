@@ -72,6 +72,8 @@ class TestAzureUnknownConfigKeyFalsePositive:
             "deployment_name": "gpt-5-4-prod",
             "deployment_type": "PAYG",
             "default_deployment": "gpt-5.4",
+            "chat_enabled": False,
+            "decisions": {"enabled": False},
         }
 
         _make_real_azure_provider(real_config)
@@ -134,6 +136,7 @@ class TestAzureUnknownConfigKeyFalsePositive:
                 "use_default_credential",
                 "azure_ad_token_file",
                 "chat_enabled",
+                "decisions",
                 "managed_identity_client_id",
                 "deployment_name",
                 "deployment_type",

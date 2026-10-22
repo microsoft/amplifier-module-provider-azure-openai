@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.12' and sys_platform == 'emscripten'",
@@ -27,6 +27,11 @@ wheels = [
 ]
 
 [[package]]
+name = "amplifier-lib-decisions"
+version = "0.1.0.dev0"
+source = { git = "https://github.com/microsoft/amplifier-lib-decisions?rev=main#6c9e064acb93d4a6ed090ee58a111b8e77648784" }
+
+[[package]]
 name = "amplifier-module-provider-azure-openai"
 version = "1.0.0"
 source = { editable = "." }
@@ -38,6 +43,9 @@ dependencies = [
 [package.optional-dependencies]
 azure = [
     { name = "azure-identity" },
+]
+decisions = [
+    { name = "amplifier-lib-decisions" },
 ]
 
 [package.dev-dependencies]
@@ -51,11 +59,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "amplifier-lib-decisions", marker = "extra == 'decisions'", git = "https://github.com/microsoft/amplifier-lib-decisions?rev=main" },
     { name = "azure-identity", specifier = ">=1.25.1" },
     { name = "azure-identity", marker = "extra == 'azure'", specifier = ">=1.15.0" },
     { name = "openai", specifier = ">=1.0.0" },
 ]
-provides-extras = ["azure"]
+provides-extras = ["decisions", "azure"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -70,6 +70,7 @@ _AZURE_EXTRA_CONFIG_KEYS: frozenset[str] = frozenset(
         "use_managed_identity",
         "use_default_credential",
         "chat_enabled",
+        "decisions",
         "azure_ad_token_file",
         "managed_identity_client_id",
         "deployment_name",
