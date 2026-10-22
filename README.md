@@ -5,8 +5,9 @@ A provider module that integrates Azure OpenAI Service with the Amplifier AI age
 ## Optional Microsoft Decision-1 capability
 
 This development candidate adds Decision-1 to the existing Azure account. Install
-this provider's `decisions` extra, with the unpublished `amplifier-lib-decisions`
-source/wheel supplied explicitly during development. It reuses the provider's API
+this provider's `decisions` extra, which resolves the lightweight
+`amplifier-lib-decisions` contract from its canonical Microsoft Git repository.
+It installs no model weights or inference server. It reuses the provider's API
 key, token callback, DefaultAzureCredential or managed identity. It does not
 create a second credential store or change the configured chat deployment.
 
