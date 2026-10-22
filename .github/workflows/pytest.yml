@@ -18,7 +18,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install package + dev dependencies
-        run: uv sync --dev
+        run: uv sync --locked --dev --extra decisions
 
       - name: Install amplifier-module-provider-openai
         # Installs the runtime dep from main. The previous feat-branch reference
@@ -32,7 +32,7 @@ jobs:
           uv pip install \
             "amplifier-module-provider-openai @ git+https://github.com/microsoft/amplifier-module-provider-openai.git@main"
 
-      - name: pytest (canonical key tests)
+      - name: pytest (offline provider contracts)
         # Runs the llm:response canonical key conformance tests — these verify the
         # provider emits the correct input_tokens/output_tokens/cache_read_tokens keys
         # without requiring live Azure credentials.
@@ -41,4 +41,7 @@ jobs:
         # test_validation.py) require a live Azure deployment with
         # AZURE_OPENAI_ENDPOINT configured. These are not run in CI — execute
         # locally against a real Azure environment.
-        run: uv run pytest tests/test_llm_response_ordering.py -v
+        run: >-
+          uv run --no-sync pytest -v tests/test_llm_response_ordering.py
+          tests/test_decisions.py tests/test_unknown_config_keys.py
+          tests/test_wait_policy.py tests/test_close.py

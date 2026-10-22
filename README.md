@@ -2,6 +2,63 @@
 
 A provider module that integrates Azure OpenAI Service with the Amplifier AI agent platform.
 
+## Optional Microsoft Decision-1 capability
+
+This development candidate adds Decision-1 to the existing Azure account. Install
+this provider's `decisions` extra, which resolves the lightweight
+`amplifier-lib-decisions` contract from its canonical Microsoft Git repository.
+It installs no model weights or inference server. It reuses the provider's API
+key, token callback, DefaultAzureCredential or managed identity. It does not
+create a second credential store or change the configured chat deployment.
+
+```yaml
+providers:
+  - module: provider-azure-openai
+    config:
+      azure_endpoint: https://your-resource.services.ai.azure.com
+      use_default_credential: true
+      default_model: your-chat-deployment
+      chat_enabled: true  # Default: mount Azure chat alongside optional decisions.
+      decisions:
+        enabled: true
+        backends:
+          desktop-selection:
+            enabled: true
+            model: your-decision-deployment
+```
+
+Keep `chat_enabled` true (the default) to mount the Azure chat provider alongside
+its optional decision backends. Named decision models share the account and do
+not replace the chat deployment.
+
+The `chat_enabled: false` path is **not supported by Core 2.0.2's provider mount
+contract**: it skips chat-provider registration, and Core rejects a provider
+entry that installs no new chat-provider instance. Configuring another ordinary
+provider does not make that Azure declaration valid. Capability-only activation
+requires a separately designed and qualified lifecycle, including failed-mount
+rollback; do not rely on a decision backend left registered by a rejected mount.
+This compatibility limit does not change the ordinary Azure chat-plus-decisions
+path or its endpoint and authentication behavior.
+
+The service uses `/providers/microsoft/v1/systemone`, a resource API separate
+from the chat SDK route. An optional decision `endpoint` overrides the account
+endpoint. Portal `/models` URLs are normalized only for Foundry resource hosts;
+custom gateway prefixes are preserved. Predicate, choice and score are supported;
+images are not advertised.
+
+For a host-managed short-lived token, `azure_ad_token_file` can reference a private
+JSON file containing `accessToken` and Unix `expires_on`. The provider rereads it
+per request and rejects expired tokens. The host owns refresh and file permissions;
+this option is not a durable sign-in. Never commit that file. API-key-disabled
+resources require Entra authentication and an appropriate inference role on the
+resource. Discovery and preference saving do not grant access or perform sign-in.
+
+Consumers separately bind the backend and consent to state transfer. Missing
+selection remains ordinary. Failures are redacted and are not retried; consumer
+fallback does not replay an uncertain desktop/browser action.
+
+Wire reference: [Microsoft Decision in Foundry](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-microsoft-decision).
+
 ## Overview
 
 This module enables Amplifier to use Azure OpenAI Service deployments for language model reasoning via the Responses API. Requests are routed through your Azure endpoint with Azure-specific authentication and deployment configuration.
