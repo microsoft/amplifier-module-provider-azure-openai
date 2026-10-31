@@ -378,6 +378,12 @@ def _create_azure_provider(
                     base_url,
                 )
 
+        def _tool_output_cache_breakpoints_supported(self, model: str) -> bool:
+            # PTU-M does not support explicit breakpoints. Deployment aliases
+            # cannot establish an underlying model's capabilities by name.
+            from amplifier_module_provider_openai import _supports_tool_output_cache_breakpoints
+            return self.config.get("deployment_type") != "PTU" and _supports_tool_output_cache_breakpoints(model)
+
         @property
         def client(self) -> AsyncOpenAI:
             """Lazily initialize the Azure OpenAI client on first access."""
@@ -414,7 +420,7 @@ def _create_azure_provider(
             """
             return []
 
-        def _convert_to_chat_response(self, response: Any) -> Any:
+        def _convert_to_chat_response(self, response: Any, **conversion_options: Any) -> Any:
             """Override: add Azure-specific PTU short-circuit cost stamping.
 
             PTU deployments have no marginal per-token cost; cost_usd is set to None.
@@ -424,7 +430,7 @@ def _create_azure_provider(
             because compute_cost has no access to deployment configuration.
             """
             # Get base response (content, tool calls, usage) from OpenAI provider
-            chat_response = super()._convert_to_chat_response(response)
+            chat_response = super()._convert_to_chat_response(response, **conversion_options)
 
             if chat_response.usage is None:
                 return chat_response
