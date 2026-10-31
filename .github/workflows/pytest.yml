@@ -32,10 +32,9 @@ jobs:
           uv pip install \
             "amplifier-module-provider-openai @ git+https://github.com/microsoft/amplifier-module-provider-openai.git@main"
 
-      - name: pytest (canonical key tests)
-        # Runs the llm:response canonical key conformance tests — these verify the
-        # provider emits the correct input_tokens/output_tokens/cache_read_tokens keys
-        # without requiring live Azure credentials.
+      - name: pytest (response and cache contracts)
+        # Exercises inherited ordinary/continued completions, deployment cache policy,
+        # canonical usage keys, cost ordering and configuration without live credentials.
         #
         # Behavioral and structural validation tests (test_behavioral.py,
         # test_validation.py) require a live Azure deployment with
