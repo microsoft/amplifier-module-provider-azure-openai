@@ -14,7 +14,8 @@ from amplifier_module_provider_azure_openai import _create_azure_provider
     ('gpt-6.1-sol', 'PTU', False), ('gpt-5.6-sol', 'PTU', False),
     ('my-deployment', 'Standard', False), ('gpt-4o', 'Standard', False),
 ])
-def test_deployment_boundaries_reach_initial_and_continued_requests(model, deployment, supported):
+@pytest.mark.parametrize('continued', [False, True])
+def test_deployment_boundaries_reach_initial_and_continued_requests(model, deployment, supported, continued):
     supplied = [{'type': 'function_call_output', 'call_id': 'c', 'output': 'result'}]
     provider = _create_azure_provider(OpenAIProvider,
         base_url='https://example.openai.azure.com/openai/v1/', api_key='test-key',
@@ -22,10 +23,12 @@ def test_deployment_boundaries_reach_initial_and_continued_requests(model, deplo
                 'max_retries': 0, 'extra_request_params': {'input': supplied}})
     responses = [SimpleNamespace(status='incomplete', id='partial', output=[], incomplete_details=None),
                  SimpleNamespace(status='completed', id='done', output=[], usage=None)]
+    if not continued:
+        responses = responses[1:]
     provider._azure_client = SimpleNamespace(responses=SimpleNamespace(create=AsyncMock(side_effect=responses)))
     asyncio.run(provider.complete(ChatRequest(messages=[Message(role='user', content='hello')])))
     calls = provider.client.responses.create.call_args_list
-    assert len(calls) == 2
+    assert len(calls) == (2 if continued else 1)
     for call in calls:
         assert isinstance(call.kwargs['input'][0]['output'], list) is supported
     assert supplied[0]['output'] == 'result'

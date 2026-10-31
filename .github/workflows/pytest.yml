@@ -41,4 +41,7 @@ jobs:
         # test_validation.py) require a live Azure deployment with
         # AZURE_OPENAI_ENDPOINT configured. These are not run in CI — execute
         # locally against a real Azure environment.
-        run: uv run pytest tests/test_llm_response_ordering.py -v
+        run: >-
+          uv run pytest tests/test_llm_response_ordering.py
+          tests/test_cache_boundaries.py tests/test_cost_callback_ordering.py
+          tests/test_unknown_config_keys.py -v
