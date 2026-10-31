@@ -378,6 +378,12 @@ def _create_azure_provider(
                     base_url,
                 )
 
+        def _tool_output_cache_breakpoints_supported(self, model: str) -> bool:
+            # PTU-M does not support explicit breakpoints. Deployment aliases
+            # cannot establish an underlying model's capabilities by name.
+            from amplifier_module_provider_openai import _supports_tool_output_cache_breakpoints
+            return self.config.get("deployment_type") != "PTU" and _supports_tool_output_cache_breakpoints(model)
+
         @property
         def client(self) -> AsyncOpenAI:
             """Lazily initialize the Azure OpenAI client on first access."""

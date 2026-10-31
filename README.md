@@ -492,3 +492,14 @@ Any use of third-party trademarks or logos are subject to those third-party's po
 The default `timeout` is `null`: model work waits for completion, explicit cancellation, or a provider/transport error. Set a numeric `timeout` in seconds to opt into a deadline. Existing cleanup limits are unchanged.
 
 Azure inherits completion, streaming, and background polling wait behavior from `provider-openai`. Deploy with the corresponding OpenAI provider wait-policy update; an older parent can still impose its own deadline. Native compaction remains capability-gated and is not advertised for Azure endpoints.
+
+### Automatic tool-result cache boundaries
+
+With the OpenAI provider policy hook introduced in
+[provider-openai #138](https://github.com/microsoft/amplifier-module-provider-openai/pull/138),
+this adapter opts in only for recognized supported model names on non-PTU
+deployments. `deployment_type: PTU` never receives automatic explicit boundaries.
+Arbitrary deployment aliases keep implicit service behavior; an alias does not
+prove its underlying model. Caller-supplied fields remain the caller's settings.
+This follows [Azure's deployment-specific cache support](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/prompt-caching).
+No longer retention policy or new remote cache resource is enabled.
