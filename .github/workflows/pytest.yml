@@ -20,7 +20,7 @@ jobs:
       - name: Install package + dev dependencies
         run: uv sync --locked --dev --extra decisions
 
-      - name: Install amplifier-module-provider-openai
+      - name: Install runtime provider and Core session test modules
         # Installs the runtime dep from main. The previous feat-branch reference
         # broke when openai#32 (feat/m2-openai branch) was merged and its branch
         # deleted on 2026-05-08. Updated 2026-05-09 to install from main.
@@ -30,7 +30,9 @@ jobs:
         #   git+https://${{ secrets.GH_PAT }}@github.com/...
         run: |
           uv pip install \
-            "amplifier-module-provider-openai @ git+https://github.com/microsoft/amplifier-module-provider-openai.git@main"
+            "amplifier-module-provider-openai @ git+https://github.com/microsoft/amplifier-module-provider-openai.git@main" \
+            "amplifier-module-loop-streaming @ git+https://github.com/microsoft/amplifier-module-loop-streaming.git@main" \
+            "amplifier-module-context-simple @ git+https://github.com/microsoft/amplifier-module-context-simple.git@main"
 
       - name: pytest (offline provider contracts)
         # Exercises inherited ordinary/continued responses, Azure cache/PTU policy,
