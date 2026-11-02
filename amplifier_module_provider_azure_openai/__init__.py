@@ -132,6 +132,10 @@ def _is_azure_identity_available() -> bool:
         return False
 
 
+class _AzureAccountCleanupError(RuntimeError):
+    """An account could not release credentials allocated during construction."""
+
+
 class _AzureAccount:
     """Resolved account shared by chat and decision-only hooks; no chat client."""
 
@@ -238,8 +242,19 @@ def _resolve_azure_account(config):
                 return await asyncio.to_thread(sync_token_provider)
 
             token_provider = async_token_provider
-        except Exception as exc:  # pragma: no cover - defensive logging path
-            logger.error("Failed to initialize Azure credential: %s", exc)
+        except BaseException as exc:
+            # The factory has not returned an owner yet. Release anything it
+            # allocated before reporting ordinary unavailability to a host.
+            logger.error("Failed to initialize Azure credential (%s)", type(exc).__name__)
+            if credential is not None:
+                try:
+                    credential.close()
+                except BaseException:
+                    raise _AzureAccountCleanupError(
+                        "Azure credential construction cleanup failed"
+                    ) from None
+            if not isinstance(exc, Exception):
+                raise
             return None
     else:
         logger.warning("No authentication method configured for Azure OpenAI provider")

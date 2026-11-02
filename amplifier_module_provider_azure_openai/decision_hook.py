@@ -5,8 +5,12 @@ __amplifier_module_type__ = "hook"
 
 class DecisionAccount:
     def __init__(self, config):
-        from . import _resolve_azure_account
-        account = _resolve_azure_account(config)
+        from . import _AzureAccountCleanupError, _resolve_azure_account
+        try:
+            account = _resolve_azure_account(config)
+        except _AzureAccountCleanupError:
+            from amplifier_decisions.hooks import UnsafeAccountCleanup
+            raise UnsafeAccountCleanup("Azure account construction cleanup failed") from None
         if account is None:
             raise ValueError("Azure decision account requires an endpoint and authentication")
         self.account = account

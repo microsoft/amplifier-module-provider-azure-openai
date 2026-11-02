@@ -189,3 +189,44 @@ async def test_catalog_keeps_ordinary_azure_default_and_declares_exact_hook_cond
     assert row["runtime"] == {"kind": "hook", "module": "hooks-azure-openai-decisions", "when": {"chat_enabled": False}}
     assert not row["backends"][0].get("decision_only")
     assert row["backends"][0]["connection"]["auth"] == "optional-key"
+
+
+@pytest.mark.parametrize("close_fails", [False, True])
+async def test_bearer_construction_failure_unwinds_before_optional_fallback(
+    captured, monkeypatch, caplog, close_fails
+):
+    import azure.identity
+    from amplifier_decisions.hooks import UnsafeAccountCleanup
+
+    seen, transports = captured
+    closed, outcomes = [], []
+    def close():
+        closed.append(True)
+        if close_fails:
+            raise RuntimeError("PRIVATE CLOSE DETAIL")
+    credential = SimpleNamespace(close=close)
+    monkeypatch.setattr(azure.identity, "DefaultAzureCredential", lambda **kwargs: credential)
+    def broken_bearer(*args):
+        raise RuntimeError("PRIVATE AUTH DETAIL")
+    monkeypatch.setattr(azure.identity, "get_bearer_token_provider", broken_bearer)
+    host = coordinator()
+    async def lifecycle(binding_id, module, outcome, error):
+        outcomes.append(outcome)
+        return True  # A host cannot permit fallback after unsafe cleanup.
+    host.register_capability("decision.account_lifecycle", lifecycle)
+    config = {
+        "azure_endpoint": "https://resource.services.ai.azure.com", "use_default_credential": True,
+        "decisions": {"enabled": True, "model": "deployment"},
+        "_decision_account": {"binding_id": "synthetic-account"},
+    }
+    if close_fails:
+        with pytest.raises(UnsafeAccountCleanup, match="construction cleanup failed") as failed:
+            await decision_hook.mount(host, config)
+        assert "PRIVATE" not in str(failed.value)
+        assert outcomes == ["unsafe"]
+    else:
+        assert await decision_hook.mount(host, config) is None
+        assert outcomes == ["unavailable"]
+    assert closed == [True] and seen == [] and transports == []
+    assert host.get_capability("decision.backends") is None
+    assert "PRIVATE" not in caplog.text
