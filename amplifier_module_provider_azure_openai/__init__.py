@@ -14,6 +14,7 @@ import logging
 import os
 from collections.abc import Awaitable
 from collections.abc import Callable
+from contextlib import AsyncExitStack
 from decimal import Decimal
 from typing import Any
 
@@ -69,6 +70,9 @@ _AZURE_EXTRA_CONFIG_KEYS: frozenset[str] = frozenset(
         "api_version",
         "use_managed_identity",
         "use_default_credential",
+        "chat_enabled",
+        "decisions",
+        "azure_ad_token_file",
         "managed_identity_client_id",
         "deployment_name",
         "deployment_type",
@@ -129,20 +133,30 @@ def _is_azure_identity_available() -> bool:
         return False
 
 
-async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = None):
-    """Mount the Azure OpenAI provider and return a cleanup coroutine if successful."""
-    # Check runtime dependency on OpenAI provider module (lazy check)
-    OpenAIProviderClass = _get_openai_provider_class()
-    if OpenAIProviderClass is None:
-        logger.error(
-            "Azure OpenAI provider requires the OpenAI provider module. "
-            "Ensure 'provider-openai' is installed before 'provider-azure-openai'. "
-            "Run 'amplifier init' or install manually."
-        )
-        return None
+class _AzureAccountCleanupError(RuntimeError):
+    """An account could not release credentials allocated during construction."""
 
-    config = config or {}
 
+class _AzureAccount:
+    """Resolved account shared by chat and decision-only hooks; no chat client."""
+
+    def __init__(self, config, api_key, token_provider, credential, base_url, api_version, auth_summary):
+        self.config = config
+        self._api_key = api_key
+        self._token_provider = token_provider
+        self._credential = credential
+        self.base_url = base_url
+        self.api_version = api_version
+        self.auth_summary = auth_summary
+
+    async def close(self):
+        credential, self._credential = self._credential, None
+        if credential is not None:
+            await asyncio.wait_for(asyncio.to_thread(credential.close), DEFAULT_CLOSE_TIMEOUT)
+
+
+def _resolve_azure_account(config):
+    """Resolve the existing account configuration without requesting a token."""
     azure_endpoint = (
         config.get("azure_endpoint")
         or os.environ.get("AZURE_OPENAI_ENDPOINT")
@@ -176,10 +190,22 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         "managed_identity_client_id"
     ) or os.environ.get("AZURE_MANAGED_IDENTITY_CLIENT_ID")
 
+    credential = None
     token_provider: Callable[[], Awaitable[str]] | None = None
 
     if api_key:
         auth_summary = "api key"
+    elif config.get("azure_ad_token_file"):
+        from pathlib import Path
+        import json
+        import time
+        token_path = Path(config["azure_ad_token_file"]).expanduser()
+        async def token_provider():
+            record = json.loads(await asyncio.to_thread(token_path.read_text))
+            if float(record.get("expires_on", 0)) <= time.time()+30:
+                raise ValueError("Azure account token expired; refresh the configured credential file")
+            return record["accessToken"]
+        auth_summary = "host-managed Entra token file"
     elif use_managed_identity or use_default_credential:
         if not _is_azure_identity_available():
             logger.error(
@@ -214,15 +240,52 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
             )
 
             async def async_token_provider() -> str:
-                return sync_token_provider()
+                return await asyncio.to_thread(sync_token_provider)
 
             token_provider = async_token_provider
-        except Exception as exc:  # pragma: no cover - defensive logging path
-            logger.error("Failed to initialize Azure credential: %s", exc)
+        except BaseException as exc:
+            # The factory has not returned an owner yet. Release anything it
+            # allocated before reporting ordinary unavailability to a host.
+            logger.error("Failed to initialize Azure credential (%s)", type(exc).__name__)
+            if credential is not None:
+                try:
+                    credential.close()
+                except BaseException:
+                    raise _AzureAccountCleanupError(
+                        "Azure credential construction cleanup failed"
+                    ) from None
+            if not isinstance(exc, Exception):
+                raise
             return None
     else:
         logger.warning("No authentication method configured for Azure OpenAI provider")
         return None
+
+    return _AzureAccount(
+        {**config, "azure_endpoint": azure_endpoint}, api_key, token_provider,
+        credential, base_url, api_version, auth_summary,
+    )
+
+
+async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = None):
+    """Mount the Azure OpenAI provider and return a cleanup coroutine if successful."""
+    # Check runtime dependency on OpenAI provider module (lazy check)
+    OpenAIProviderClass = _get_openai_provider_class()
+    if OpenAIProviderClass is None:
+        logger.error(
+            "Azure OpenAI provider requires the OpenAI provider module. "
+            "Ensure 'provider-openai' is installed before 'provider-azure-openai'. "
+            "Run 'amplifier init' or install manually."
+        )
+        return None
+
+    config = config or {}
+
+    account = _resolve_azure_account(config)
+    if account is None:
+        return None
+    base_url, api_version, auth_summary = account.base_url, account.api_version, account.auth_summary
+    api_key, token_provider = account._api_key, account._token_provider
 
     # Create the provider instance using the dynamically loaded class
     _totals: dict = {"cost_usd": None, "has_data": False}
@@ -234,55 +297,67 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
             )
             _totals["has_data"] = True
 
-    provider = _create_azure_provider(
-        OpenAIProviderClass,
-        base_url=base_url,
-        api_key=api_key,
-        token_provider=token_provider,
-        config=config,
-        coordinator=coordinator,
-        add_cost=_add_cost,
-    )
+    cleanup = AsyncExitStack()
+    cleanup.push_async_callback(account.close)
+    try:
+        provider = _create_azure_provider(
+            OpenAIProviderClass,
+            base_url=base_url,
+            api_key=api_key,
+            token_provider=token_provider,
+            # Keep the resolved account resource available to optional adapters,
+            # including when it came from either supported environment variable.
+            # Copy the caller's settings; decision-specific endpoints still override it.
+            config=account.config,
+            coordinator=coordinator,
+            add_cost=_add_cost,
+        )
 
-    await coordinator.mount("providers", provider, name=provider.name)
-    logger.info(
-        "Mounted AzureOpenAIProvider (Responses API, endpoint: %s, version: %s, auth: %s)",
-        base_url,
-        api_version,
-        auth_summary,
-    )
+        cleanup.push_async_callback(provider.close)
+        if (config.get("decisions") or {}).get("enabled") is True:
+            from .decisions import FoundryDecisions
+            from amplifier_decisions.runtime import register
+            from amplifier_decisions.config import configured_backends
+            for identity, row in configured_backends(config, "azure-decisions").items():
+                transport = FoundryDecisions(provider, row, coordinator)
+                cleanup.push_async_callback(transport.close)
+                cleanup.push_async_callback(register(coordinator, identity, transport.backend))
+        if config.get("chat_enabled", True) is not False:
+            await coordinator.mount("providers", provider, name=provider.name)
+        logger.info(
+            "Mounted AzureOpenAIProvider (Responses API, endpoint: %s, version: %s, auth: %s)",
+            base_url,
+            api_version,
+            auth_summary,
+        )
 
-    # Issue #321's compaction-reset subscription was removed here: the shared
-    # OpenAI provider base class is now stateless-only, so the
-    # `_reset_chain_on_next_request` flag this used to flip (and the
-    # previous_response_id chaining it protected) no longer exist. There is no
-    # response chain to break on compaction anymore -- every request already
-    # sends the full converted input with store=false.
+        # Issue #321's compaction-reset subscription was removed here: the shared
+        # OpenAI provider base class is now stateless-only, so the
+        # `_reset_chain_on_next_request` flag this used to flip (and the
+        # previous_response_id chaining it protected) no longer exist. There is no
+        # response chain to break on compaction anymore -- every request already
+        # sends the full converted input with store=false.
 
-    coordinator.register_contributor(
-        "session.cost",
-        "provider-azure-openai",
-        lambda: (
-            {
-                "cost_usd": str(_totals["cost_usd"])
-                if _totals["cost_usd"] is not None
+        coordinator.register_contributor(
+            "session.cost",
+            "provider-azure-openai",
+            lambda: (
+                {
+                    "cost_usd": str(_totals["cost_usd"])
+                    if _totals["cost_usd"] is not None
+                    else None
+                }
+                if _totals["has_data"]
                 else None
-            }
-            if _totals["has_data"]
-            else None
-        ),
-    )
-
-    async def cleanup():
-        # Delegate rather than re-implement: close() is the bounded path
-        # (asyncio.wait_for around the client close). Duplicating the close
-        # here is what left session cleanup unbounded even after close()
-        # itself was fixed. close() reads _azure_client directly, never the
-        # lazy-init `client` property, so cleanup still cannot construct a
-        # client just to destroy it.
-        await provider.close()
-
-    return cleanup
+            ),
+        )
+    except BaseException as error:
+        try:
+            await cleanup.aclose()
+        except BaseException as cleanup_error:
+            error.add_note(f"Azure mount rollback failed: {type(cleanup_error).__name__}")
+        raise
+    return cleanup.pop_all().aclose
 
 
 def _create_azure_provider(
@@ -408,6 +483,11 @@ def _create_azure_provider(
                     max_retries=0,  # Amplifier manages retries via retry_with_backoff
                 )
             return self._azure_client
+
+        @staticmethod
+        def get_decision_info():
+            from .decisions import decision_info
+            return decision_info()
 
         def get_info(self) -> ProviderInfo:
             """Get provider metadata."""
@@ -608,6 +688,11 @@ class AzureOpenAIProvider:
 
     name = "azure-openai"
     api_label = "Azure OpenAI"
+
+    @staticmethod
+    def get_decision_info():
+        from .decisions import decision_info
+        return decision_info()
 
     @staticmethod
     def get_info() -> ProviderInfo:
