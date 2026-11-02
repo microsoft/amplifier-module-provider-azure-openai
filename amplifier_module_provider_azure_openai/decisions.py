@@ -10,8 +10,16 @@ def validate(config):
 
 def catalog():
     return {'schema_version': 2, 'provider_module': 'provider-azure-openai', 'validate': validate,
+            'runtime': {'kind': 'hook', 'module': 'hooks-azure-openai-decisions',
+                        'when': {'chat_enabled': False}},
             'backends': [{'kind': 'microsoft-decision-1', 'label': 'Microsoft Decision-1',
                           'default_model': '', 'model_label': 'Deployment name',
+                          'connection': {'auth': 'optional-key', 'endpoint': True,
+                              'endpoint_config_key': 'azure_endpoint',
+                              'description': 'Connect an Azure Decision-1 deployment for optional UI decisions.',
+                              'endpoint_placeholder': 'https://your-resource.services.ai.azure.com',
+                              'credential_hint': 'Leave the key blank only when this host already has configured Entra credentials.',
+                              'endpoint_hint': 'Use the Foundry resource endpoint; the decision deployment is selected separately.'},
                           'endpoint_optional': True, 'configuration_key': 'decisions'}]}
 
 

@@ -31,14 +31,37 @@ Keep `chat_enabled` true (the default) to mount the Azure chat provider alongsid
 its optional decision backends. Named decision models share the account and do
 not replace the chat deployment.
 
-The `chat_enabled: false` path is **not supported by Core 2.0.2's provider mount
-contract**: it skips chat-provider registration, and Core rejects a provider
-entry that installs no new chat-provider instance. Configuring another ordinary
-provider does not make that Azure declaration valid. Capability-only activation
-requires a separately designed and qualified lifecycle, including failed-mount
-rollback; do not rely on a decision backend left registered by a rejected mount.
-This compatibility limit does not change the ordinary Azure chat-plus-decisions
-path or its endpoint and authentication behavior.
+For a resource that only has a Decision-1 deployment, use the separate
+`hooks-azure-openai-decisions` hook from this same package (with the `decisions`
+extra installed). It reuses the same account endpoint, key/Entra/token-file
+resolution without constructing or mounting a chat provider:
+
+```yaml
+hooks:
+  - module: hooks-azure-openai-decisions
+    config:
+      azure_endpoint: https://your-resource.services.ai.azure.com
+      use_default_credential: true
+      decisions:
+        enabled: true
+        model: your-decision-deployment
+```
+
+An app that reads the decision catalog can project a saved Azure account with
+`chat_enabled: false` to this hook. The catalog's exact `when` condition leaves
+ordinary Azure chat-plus-decisions on the normal provider path. Directly putting
+`chat_enabled: false` under `providers` is still invalid on Core 2.0.2: Core
+requires a new chat-provider instance. Use the explicit hook or a host that
+supports this account projection; another chat provider does not make an invalid
+Azure provider mount valid.
+
+The hook uses the shared account lifecycle for partial-failure/cancellation
+rollback and cleanup. Disabled decisions do not construct credentials or
+transports. Entra sign-in/refresh remains host-owned; this hook does not provide
+a browser login flow. If registration fails, do not rely on leftover backends or
+replay an uncertain action. This route requires the shared hook lifecycle support
+in amplifier-lib-decisions; older library snapshots without that module are not
+compatible.
 
 The service uses `/providers/microsoft/v1/systemone`, a resource API separate
 from the chat SDK route. An optional decision `endpoint` overrides the account

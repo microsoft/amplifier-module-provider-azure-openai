@@ -19,6 +19,7 @@ dependencies = [
 
 [project.entry-points."amplifier.modules"]
 provider-azure-openai = "amplifier_module_provider_azure_openai:mount"
+hooks-azure-openai-decisions = "amplifier_module_provider_azure_openai.decision_hook:mount"
 
 [project.optional-dependencies]
 decisions = ["amplifier-lib-decisions @ git+https://github.com/microsoft/amplifier-lib-decisions@main"]

@@ -39,5 +39,5 @@ jobs:
         run: >-
           uv run --no-sync pytest -v tests/test_llm_response_ordering.py
           tests/test_cache_boundaries.py tests/test_cost_callback_ordering.py
-          tests/test_decisions.py tests/test_unknown_config_keys.py
+          tests/test_decisions.py tests/test_decision_hook.py tests/test_unknown_config_keys.py
           tests/test_wait_policy.py tests/test_close.py

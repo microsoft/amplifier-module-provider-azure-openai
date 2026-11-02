@@ -132,20 +132,26 @@ def _is_azure_identity_available() -> bool:
         return False
 
 
-async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = None):
-    """Mount the Azure OpenAI provider and return a cleanup coroutine if successful."""
-    # Check runtime dependency on OpenAI provider module (lazy check)
-    OpenAIProviderClass = _get_openai_provider_class()
-    if OpenAIProviderClass is None:
-        logger.error(
-            "Azure OpenAI provider requires the OpenAI provider module. "
-            "Ensure 'provider-openai' is installed before 'provider-azure-openai'. "
-            "Run 'amplifier init' or install manually."
-        )
-        return None
+class _AzureAccount:
+    """Resolved account shared by chat and decision-only hooks; no chat client."""
 
-    config = config or {}
+    def __init__(self, config, api_key, token_provider, credential, base_url, api_version, auth_summary):
+        self.config = config
+        self._api_key = api_key
+        self._token_provider = token_provider
+        self._credential = credential
+        self.base_url = base_url
+        self.api_version = api_version
+        self.auth_summary = auth_summary
 
+    async def close(self):
+        credential, self._credential = self._credential, None
+        if credential is not None:
+            await asyncio.wait_for(asyncio.to_thread(credential.close), DEFAULT_CLOSE_TIMEOUT)
+
+
+def _resolve_azure_account(config):
+    """Resolve the existing account configuration without requesting a token."""
     azure_endpoint = (
         config.get("azure_endpoint")
         or os.environ.get("AZURE_OPENAI_ENDPOINT")
@@ -179,6 +185,7 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         "managed_identity_client_id"
     ) or os.environ.get("AZURE_MANAGED_IDENTITY_CLIENT_ID")
 
+    credential = None
     token_provider: Callable[[], Awaitable[str]] | None = None
 
     if api_key:
@@ -238,6 +245,32 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         logger.warning("No authentication method configured for Azure OpenAI provider")
         return None
 
+    return _AzureAccount(
+        {**config, "azure_endpoint": azure_endpoint}, api_key, token_provider,
+        credential, base_url, api_version, auth_summary,
+    )
+
+
+async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = None):
+    """Mount the Azure OpenAI provider and return a cleanup coroutine if successful."""
+    # Check runtime dependency on OpenAI provider module (lazy check)
+    OpenAIProviderClass = _get_openai_provider_class()
+    if OpenAIProviderClass is None:
+        logger.error(
+            "Azure OpenAI provider requires the OpenAI provider module. "
+            "Ensure 'provider-openai' is installed before 'provider-azure-openai'. "
+            "Run 'amplifier init' or install manually."
+        )
+        return None
+
+    config = config or {}
+
+    account = _resolve_azure_account(config)
+    if account is None:
+        return None
+    base_url, api_version, auth_summary = account.base_url, account.api_version, account.auth_summary
+    api_key, token_provider = account._api_key, account._token_provider
+
     # Create the provider instance using the dynamically loaded class
     _totals: dict = {"cost_usd": None, "has_data": False}
 
@@ -256,7 +289,7 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         # Keep the resolved account resource available to optional adapters,
         # including when it came from either supported environment variable.
         # Copy the caller's settings; decision-specific endpoints still override it.
-        config={**config, "azure_endpoint": azure_endpoint},
+        config=account.config,
         coordinator=coordinator,
         add_cost=_add_cost,
     )
@@ -274,7 +307,10 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         except Exception:
             for remove in decision_removals: await remove()
             for transport in decision_transports: await transport.close()
-            await provider.close()
+            try:
+                await provider.close()
+            finally:
+                await account.close()
             raise
     if config.get("chat_enabled", True) is not False:
         await coordinator.mount("providers", provider, name=provider.name)
@@ -315,7 +351,10 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
         # client just to destroy it.
         for remove in decision_removals: await remove()
         for transport in decision_transports: await transport.close()
-        await provider.close()
+        try:
+            await provider.close()
+        finally:
+            await account.close()
 
     return cleanup
 
