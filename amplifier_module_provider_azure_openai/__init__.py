@@ -14,6 +14,7 @@ import logging
 import os
 from collections.abc import Awaitable
 from collections.abc import Callable
+from contextlib import AsyncExitStack
 from decimal import Decimal
 from typing import Any
 
@@ -296,82 +297,67 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
             )
             _totals["has_data"] = True
 
-    provider = _create_azure_provider(
-        OpenAIProviderClass,
-        base_url=base_url,
-        api_key=api_key,
-        token_provider=token_provider,
-        # Keep the resolved account resource available to optional adapters,
-        # including when it came from either supported environment variable.
-        # Copy the caller's settings; decision-specific endpoints still override it.
-        config=account.config,
-        coordinator=coordinator,
-        add_cost=_add_cost,
-    )
+    cleanup = AsyncExitStack()
+    cleanup.push_async_callback(account.close)
+    try:
+        provider = _create_azure_provider(
+            OpenAIProviderClass,
+            base_url=base_url,
+            api_key=api_key,
+            token_provider=token_provider,
+            # Keep the resolved account resource available to optional adapters,
+            # including when it came from either supported environment variable.
+            # Copy the caller's settings; decision-specific endpoints still override it.
+            config=account.config,
+            coordinator=coordinator,
+            add_cost=_add_cost,
+        )
 
-    decision_removals, decision_transports = [], []
-    if (config.get("decisions") or {}).get("enabled") is True:
-        from .decisions import FoundryDecisions
-        from amplifier_decisions.runtime import register
-        from amplifier_decisions.config import configured_backends
-        try:
+        cleanup.push_async_callback(provider.close)
+        if (config.get("decisions") or {}).get("enabled") is True:
+            from .decisions import FoundryDecisions
+            from amplifier_decisions.runtime import register
+            from amplifier_decisions.config import configured_backends
             for identity, row in configured_backends(config, "azure-decisions").items():
                 transport = FoundryDecisions(provider, row, coordinator)
-                decision_transports.append(transport)
-                decision_removals.append(register(coordinator, identity, transport.backend))
-        except Exception:
-            for remove in decision_removals: await remove()
-            for transport in decision_transports: await transport.close()
-            try:
-                await provider.close()
-            finally:
-                await account.close()
-            raise
-    if config.get("chat_enabled", True) is not False:
-        await coordinator.mount("providers", provider, name=provider.name)
-    logger.info(
-        "Mounted AzureOpenAIProvider (Responses API, endpoint: %s, version: %s, auth: %s)",
-        base_url,
-        api_version,
-        auth_summary,
-    )
+                cleanup.push_async_callback(transport.close)
+                cleanup.push_async_callback(register(coordinator, identity, transport.backend))
+        if config.get("chat_enabled", True) is not False:
+            await coordinator.mount("providers", provider, name=provider.name)
+        logger.info(
+            "Mounted AzureOpenAIProvider (Responses API, endpoint: %s, version: %s, auth: %s)",
+            base_url,
+            api_version,
+            auth_summary,
+        )
 
-    # Issue #321's compaction-reset subscription was removed here: the shared
-    # OpenAI provider base class is now stateless-only, so the
-    # `_reset_chain_on_next_request` flag this used to flip (and the
-    # previous_response_id chaining it protected) no longer exist. There is no
-    # response chain to break on compaction anymore -- every request already
-    # sends the full converted input with store=false.
+        # Issue #321's compaction-reset subscription was removed here: the shared
+        # OpenAI provider base class is now stateless-only, so the
+        # `_reset_chain_on_next_request` flag this used to flip (and the
+        # previous_response_id chaining it protected) no longer exist. There is no
+        # response chain to break on compaction anymore -- every request already
+        # sends the full converted input with store=false.
 
-    coordinator.register_contributor(
-        "session.cost",
-        "provider-azure-openai",
-        lambda: (
-            {
-                "cost_usd": str(_totals["cost_usd"])
-                if _totals["cost_usd"] is not None
+        coordinator.register_contributor(
+            "session.cost",
+            "provider-azure-openai",
+            lambda: (
+                {
+                    "cost_usd": str(_totals["cost_usd"])
+                    if _totals["cost_usd"] is not None
+                    else None
+                }
+                if _totals["has_data"]
                 else None
-            }
-            if _totals["has_data"]
-            else None
-        ),
-    )
-
-    async def cleanup():
-        # Delegate rather than re-implement: close() is the bounded path
-        # (asyncio.wait_for around the client close). Duplicating the close
-        # here is what left session cleanup unbounded even after close()
-        # itself was fixed. close() reads _azure_client directly, never the
-        # lazy-init `client` property, so cleanup still cannot construct a
-        # client just to destroy it.
-        for remove in decision_removals: await remove()
-        for transport in decision_transports: await transport.close()
+            ),
+        )
+    except BaseException as error:
         try:
-            await provider.close()
-        finally:
-            await account.close()
-
-    return cleanup
+            await cleanup.aclose()
+        except BaseException as cleanup_error:
+            error.add_note(f"Azure mount rollback failed: {type(cleanup_error).__name__}")
+        raise
+    return cleanup.pop_all().aclose
 
 
 def _create_azure_provider(
