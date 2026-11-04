@@ -141,5 +141,6 @@ class TestAzureUnknownConfigKeyFalsePositive:
                 "deployment_name",
                 "deployment_type",
                 "default_deployment",
+                "native_compaction",
             }
         )
