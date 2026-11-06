@@ -17,6 +17,7 @@ def response(*, model="gpt-5.4", status="completed", usage=True):
         # Public OpenAI service-tier pricing must not replace Azure PAYG rates.
         service_tier="flex",
         status=status,
+        incomplete_details=S(reason="max_output_tokens") if status == "incomplete" else None,
         id=f"resp_{status}",
         output=[],
         usage=S(
