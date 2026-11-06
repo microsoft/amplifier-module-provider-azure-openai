@@ -88,6 +88,13 @@ This module enables Amplifier to use Azure OpenAI Service deployments for langua
 
 ### Deployment listing
 
+For setup and Settings consumers, the publicly exported
+`AzureOpenAIProvider(config=None)` supports `get_info()`, `get_model_list_info()`
+and `list_models()` without importing the OpenAI provider, resolving credentials
+or constructing a client. It is a setup/catalog object, not an inference
+provider. `mount()` still creates the runtime provider and owns account cleanup.
+Both use the same local listing implementation and selector policy.
+
 `list_models(*, filters=None)` returns **configured**, not remotely enumerated,
 deployment names. Set `deployments: [production-chat, team-custom]` to list multiple
 aliases. Without that key, explicitly supplied `default_model`, `deployment_name`
