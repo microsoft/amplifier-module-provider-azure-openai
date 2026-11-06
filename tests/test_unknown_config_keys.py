@@ -141,5 +141,7 @@ class TestAzureUnknownConfigKeyFalsePositive:
                 "deployment_name",
                 "deployment_type",
                 "default_deployment",
+                "deployments",
+                "model_filters",
             }
         )
