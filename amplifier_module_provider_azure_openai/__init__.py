@@ -14,6 +14,7 @@ import logging
 import os
 from collections.abc import Awaitable
 from collections.abc import Callable
+from collections.abc import Mapping
 from contextlib import AsyncExitStack
 from decimal import Decimal
 from typing import Any
@@ -22,9 +23,11 @@ from amplifier_core import ConfigField
 from amplifier_core import ModelInfo
 from amplifier_core import ModuleCoordinator
 from amplifier_core import ProviderInfo
+from amplifier_core.llm_errors import ProviderUnavailableError
 from openai import AsyncOpenAI, Timeout
 
 from ._cost import compute_cost
+from ._model_listing import ModelFilters, listing_info
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +80,8 @@ _AZURE_EXTRA_CONFIG_KEYS: frozenset[str] = frozenset(
         "deployment_name",
         "deployment_type",
         "default_deployment",
+        "deployments",
+        "model_filters",
     }
 )
 
@@ -396,6 +401,26 @@ def _create_azure_provider(
             add_cost=None,
         ):
             """Initialize Azure OpenAI provider."""
+            listing_config = config or {}
+            self._deployment_filters = ModelFilters.parse(listing_config.get("model_filters", {}))
+            configured = listing_config.get("deployments")
+            if "deployments" in listing_config:
+                if not isinstance(configured, (list, tuple)) or any(
+                    not isinstance(name, str) or not name.strip() for name in configured
+                ):
+                    raise ValueError("deployments must be a list of nonblank deployment names")
+                self._deployment_names = tuple(configured)
+            else:
+                # Only explicit user settings are evidence of a configured alias.
+                # Never advertise the inherited/hardcoded inference default.
+                names = [
+                    listing_config[key] for key in
+                    ("default_model", "deployment_name", "default_deployment")
+                    if listing_config.get(key) is not None
+                ]
+                if any(not isinstance(name, str) or not name.strip() for name in names):
+                    raise ValueError("configured deployment names must be nonblank strings")
+                self._deployment_names = tuple(names) if names else None
             # Store for lazy client creation
             self._base_url = base_url
             self._token_provider = token_provider
@@ -493,12 +518,29 @@ def _create_azure_provider(
             """Get provider metadata."""
             return _get_azure_provider_info()
 
-        async def list_models(self) -> list[ModelInfo]:
-            """List available Azure OpenAI models.
+        def get_model_list_info(self) -> dict[str, Any]:
+            """Configured names are not an account deployment enumeration."""
+            return listing_info(
+                "configured" if self._deployment_names is not None else "unsupported",
+                self._deployment_filters,
+            )
 
-            Returns empty list since Azure deployments are customer-specific.
-            """
-            return []
+        async def list_models(
+            self, *, filters: Mapping[str, object] | None = None
+        ) -> list[ModelInfo]:
+            """List configured customer aliases without requiring Azure management access."""
+            policy = self._deployment_filters if filters is None else ModelFilters.parse(filters)
+            if self._deployment_names is None:
+                raise ProviderUnavailableError(
+                    "Azure deployment enumeration is unavailable. Configure deployments "
+                    "or enter an exact deployment_name/default_model; no management login is required.",
+                    provider=self.name,
+                    retryable=False,
+                )
+            return [
+                ModelInfo(id=name, display_name=name, context_window=0, max_output_tokens=0)
+                for name in policy.select(list(self._deployment_names))
+            ]
 
         def _convert_to_chat_response(self, response: Any, **conversion_options: Any) -> Any:
             """Override: add Azure-specific PTU short-circuit cost stamping.

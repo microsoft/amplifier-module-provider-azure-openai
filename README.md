@@ -86,6 +86,29 @@ Wire reference: [Microsoft Decision in Foundry](https://learn.microsoft.com/en-u
 
 This module enables Amplifier to use Azure OpenAI Service deployments for language model reasoning via the Responses API. Requests are routed through your Azure endpoint with Azure-specific authentication and deployment configuration.
 
+### Deployment listing
+
+`list_models(*, filters=None)` returns **configured**, not remotely enumerated,
+deployment names. Set `deployments: [production-chat, team-custom]` to list multiple
+aliases. Without that key, explicitly supplied `default_model`, `deployment_name`
+and `default_deployment` names are listed. The hardcoded inference default is
+never evidence of a deployment. `deployments: []` is a successful empty configured
+view; no configured names raises a non-retryable `ProviderUnavailableError` and
+the host should offer exact manual entry.
+
+Azure inference access does not establish management-plane deployment-list access.
+This implementation does not request a management token, force Azure login, or
+mislabel the general model catalog as deployed aliases. `get_model_list_info()`
+reports `source: configured` or `unsupported` accordingly.
+
+All configured aliases are included by default, with no `gpt-` prefix rule.
+`config.model_filters` snapshots `include`, `exclude` and `hide_dated`; a per-call
+mapping replaces it, `{}` is unfiltered, `include: []` includes none, and exclude
+wins. Globs are case-insensitive and OS-independent; returned names are unchanged.
+`hide_dated` only hides a YYYY-MM-DD suffix when its undated alias is selected.
+Zero ModelInfo limits mean unknown; no capability is inferred from a deployment
+name. Explicit inference selections and authentication remain unchanged.
+
 ## Features
 
 - **Azure OpenAI Service Integration**: Connect to your Azure-hosted OpenAI deployments
