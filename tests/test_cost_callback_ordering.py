@@ -15,18 +15,32 @@ in sync with the final `llm:response` event payload, the Azure subclass:
   3. Calls `self._azure_add_cost(cost)` from `_convert_to_chat_response` AFTER
      computing the Azure-corrected cost
 
-These tests pin that contract so a future change to the parent's M2 wiring
-cannot silently re-break Azure cost reporting.
+These tests retain that contract for older parents. Current parents use the
+per-attempt hook; test_attempt_cost.py checks their complete/continuation path.
 """
 
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from amplifier_core.message_models import ChatResponse
-from amplifier_core.message_models import Usage
-
+from amplifier_core.message_models import ChatResponse, Usage
 from amplifier_module_provider_azure_openai import _create_azure_provider
+from amplifier_module_provider_openai import OpenAIProvider as _CurrentProvider
+
+
+class _LegacyProvider(_CurrentProvider):
+    """Exercise the historical stamp without installing an old provider."""
+
+    _compute_attempt_cost = None
+
+    def _convert_to_chat_response(self, response, **conversion_options):
+        import amplifier_module_provider_openai as parent
+
+        cost = parent.compute_cost(
+            response.model, prompt_tokens=response.usage.input_tokens
+        )
+        self._add_cost(cost)
+        return _make_parent_chat_response(cost)
 
 
 def _make_response(*, model: str = "gpt-5.4", prompt_tokens: int = 1_000_000):
@@ -90,12 +104,10 @@ def test_parent_add_cost_is_a_no_op():
     cost would be double-counted (parent fires with OpenAI cost, then Azure
     fires with Azure cost — both into the same _totals dict).
     """
-    from amplifier_module_provider_openai import OpenAIProvider
-
     captured: list = []
 
     provider = _create_azure_provider(
-        OpenAIProvider,
+        _LegacyProvider,
         base_url="https://example.openai.azure.com/openai/v1/",
         api_key="test-key",
         config={"use_streaming": False},
@@ -144,12 +156,10 @@ def test_convert_to_chat_response_silences_parent_and_uses_azure_cost():
       - If Azure's compute_cost isn't called (override bypassed), the cost_usd
         on the result wouldn't be the Azure value and assertion 3 fails.
     """
-    from amplifier_module_provider_openai import OpenAIProvider
-
     captured: list = []
 
     provider = _create_azure_provider(
-        OpenAIProvider,
+        _LegacyProvider,
         base_url="https://example.openai.azure.com/openai/v1/",
         api_key="test-key",
         config={"use_streaming": False},
@@ -211,12 +221,10 @@ def test_ptu_short_circuit_does_not_accumulate():
     The mount-level _add_cost callback already handles None as a no-op, so PTU
     deployments contribute nothing to _totals. This test pins that contract.
     """
-    from amplifier_module_provider_openai import OpenAIProvider
-
     captured: list = []
 
     provider = _create_azure_provider(
-        OpenAIProvider,
+        _LegacyProvider,
         base_url="https://example.openai.azure.com/openai/v1/",
         api_key="test-key",
         config={"use_streaming": False, "deployment_type": "PTU"},
@@ -227,7 +235,7 @@ def test_ptu_short_circuit_does_not_accumulate():
     response = _make_response(model="gpt-5.4", prompt_tokens=1_000_000)
 
     with patch.object(
-        OpenAIProvider,
+        _LegacyProvider,
         "_convert_to_chat_response",
         return_value=fake_parent_response,
     ):
