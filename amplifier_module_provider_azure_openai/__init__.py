@@ -467,11 +467,12 @@ def _create_azure_provider(
             self._close_timeout: float = _get_float(
                 config or {}, "close_timeout", DEFAULT_CLOSE_TIMEOUT
             )
-            # Azure overrides parent's cost in _convert_to_chat_response (PTU
-            # short-circuit + Azure-specific rates). Parent's self._add_cost(parent_cost)
-            # call fires inside _convert_to_chat_response BEFORE our override runs, so
-            # we hand the parent a no-op and accumulate the Azure-corrected cost
-            # ourselves at the right ordering point.
+            # Current parents price every billed attempt through this hook and
+            # accumulate once after continuation. Older parents stamp costs
+            # inside conversion, so retain their no-op/corrected-cost adapter.
+            self._uses_attempt_cost = callable(
+                getattr(base_class, "_compute_attempt_cost", None)
+            )
             self._azure_add_cost = (
                 add_cost if add_cost is not None else (lambda _c: None)
             )
@@ -481,7 +482,9 @@ def _create_azure_provider(
                 config=config,
                 coordinator=coordinator,
                 client=None,
-                add_cost=lambda _c: None,
+                add_cost=self._azure_add_cost
+                if self._uses_attempt_cost
+                else (lambda _c: None),
             )
 
             # Override base_url from parent
@@ -553,58 +556,40 @@ def _create_azure_provider(
             """Get provider metadata."""
             return _get_azure_provider_info()
 
+        def _compute_attempt_cost(self, response: Any) -> Any:
+            """Price original vendor usage, before public normalization or summing."""
+            def field(obj, name, default=None):
+                if isinstance(obj, dict):
+                    return obj.get(name, default)
+                return getattr(obj, name, default)
+
+            usage = field(response, "usage")
+            if self.config.get("deployment_type") == "PTU" or usage is None:
+                return None
+            prompt = field(usage, "prompt_tokens")
+            completion = field(usage, "completion_tokens")
+            if prompt is None:
+                prompt = field(usage, "input_tokens", 0)
+            if completion is None:
+                completion = field(usage, "output_tokens", 0)
+            details = field(usage, "prompt_tokens_details")
+            cached = field(details, "cached_tokens")
+            if cached is None:
+                cached = field(field(usage, "input_tokens_details"), "cached_tokens", 0)
+            return compute_cost(
+                field(response, "model", ""),
+                prompt_tokens=prompt,
+                completion_tokens=completion,
+                cached_tokens=cached or 0,
+            )
+
         def _convert_to_chat_response(self, response: Any, **conversion_options: Any) -> Any:
-            """Override: add Azure-specific PTU short-circuit cost stamping.
-
-            PTU deployments have no marginal per-token cost; cost_usd is set to None.
-            PAYG deployments use Azure PAYG rates from ._cost.compute_cost.
-
-            The PTU check happens here (at the call site), not inside compute_cost,
-            because compute_cost has no access to deployment configuration.
-            """
-            # Get base response (content, tool calls, usage) from OpenAI provider
+            """Keep older parents compatible; current parents own accumulation."""
             chat_response = super()._convert_to_chat_response(response, **conversion_options)
-
-            if chat_response.usage is None:
+            if self._uses_attempt_cost or chat_response.usage is None:
                 return chat_response
-
-            # PTU short-circuit: no per-token cost for PTU deployments
-            if self.config.get("deployment_type") == "PTU" or response.usage is None:
-                cost = None
-            else:
-                _usage_obj = response.usage
-                # Azure responses use prompt_tokens/completion_tokens;
-                # fall back to input_tokens/output_tokens for compatibility.
-                _prompt_tokens = getattr(
-                    _usage_obj, "prompt_tokens", getattr(_usage_obj, "input_tokens", 0)
-                )
-                _completion_tokens = getattr(
-                    _usage_obj,
-                    "completion_tokens",
-                    getattr(_usage_obj, "output_tokens", 0),
-                )
-                # Azure: prompt_tokens_details.cached_tokens; fall back to
-                # input_tokens_details.cached_tokens for compat.
-                _ptd = getattr(_usage_obj, "prompt_tokens_details", None)
-                _itd = getattr(_usage_obj, "input_tokens_details", None)
-                _cached_tokens = (
-                    getattr(_ptd, "cached_tokens", None)
-                    or getattr(_itd, "cached_tokens", None)
-                    or 0
-                )
-                cost = compute_cost(
-                    getattr(response, "model", ""),
-                    prompt_tokens=_prompt_tokens,
-                    completion_tokens=_completion_tokens,
-                    cached_tokens=_cached_tokens,
-                )
-
-            # Override cost_usd (replaces parent's OpenAI cost calculation with Azure-specific)
+            cost = self._compute_attempt_cost(response)
             usage = chat_response.usage.model_copy(update={"cost_usd": cost})
-            # Accumulate at this point with the Azure-corrected cost. Parent's
-            # self._add_cost is a no-op (see __init__) precisely so this is where
-            # accumulation happens. _azure_add_cost handles cost=None as a no-op,
-            # so PTU deployments naturally contribute nothing.
             self._azure_add_cost(cost)
             return chat_response.model_copy(update={"usage": usage})
 

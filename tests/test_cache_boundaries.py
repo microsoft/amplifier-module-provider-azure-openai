@@ -21,7 +21,8 @@ def test_deployment_boundaries_reach_initial_and_continued_requests(model, deplo
         base_url='https://example.openai.azure.com/openai/v1/', api_key='test-key',
         config={'default_model': model, 'deployment_type': deployment, 'use_streaming': False,
                 'max_retries': 0, 'extra_request_params': {'input': supplied}})
-    responses = [SimpleNamespace(status='incomplete', id='partial', output=[], incomplete_details=None),
+    responses = [SimpleNamespace(status='incomplete', id='partial', output=[],
+                                 incomplete_details=SimpleNamespace(reason='max_output_tokens')),
                  SimpleNamespace(status='completed', id='done', output=[], usage=None)]
     if not continued:
         responses = responses[1:]
