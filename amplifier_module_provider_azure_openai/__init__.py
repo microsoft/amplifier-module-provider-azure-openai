@@ -14,6 +14,7 @@ import logging
 import os
 from collections.abc import Awaitable
 from collections.abc import Callable
+from collections.abc import Mapping
 from contextlib import AsyncExitStack
 from decimal import Decimal
 from typing import Any
@@ -22,9 +23,11 @@ from amplifier_core import ConfigField
 from amplifier_core import ModelInfo
 from amplifier_core import ModuleCoordinator
 from amplifier_core import ProviderInfo
+from amplifier_core.llm_errors import ProviderUnavailableError
 from openai import AsyncOpenAI, Timeout
 
 from ._cost import compute_cost
+from ._model_listing import ModelFilters, listing_info
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +80,8 @@ _AZURE_EXTRA_CONFIG_KEYS: frozenset[str] = frozenset(
         "deployment_name",
         "deployment_type",
         "default_deployment",
+        "deployments",
+        "model_filters",
     }
 )
 
@@ -360,6 +365,60 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
     return cleanup.pop_all().aclose
 
 
+class _ConfiguredDeploymentListing:
+    """Shared local catalog for public setup and mounted runtime instances.
+
+    This layer never resolves an account, loads the OpenAI provider, or creates
+    a transport. Keep the recommendation policy identical at both public seams.
+    """
+
+    def _init_deployment_listing(self, config: dict[str, Any] | None) -> None:
+        listing_config = config or {}
+        self._deployment_filters = ModelFilters.parse(listing_config.get("model_filters", {}))
+        configured = listing_config.get("deployments")
+        if "deployments" in listing_config:
+            if not isinstance(configured, (list, tuple)) or any(
+                not isinstance(name, str) or not name.strip() for name in configured
+            ):
+                raise ValueError("deployments must be a list of nonblank deployment names")
+            self._deployment_names = tuple(configured)
+        else:
+            # Only explicit user settings are evidence of a configured alias.
+            # Never advertise the inherited/hardcoded inference default.
+            names = [
+                listing_config[key] for key in
+                ("default_model", "deployment_name", "default_deployment")
+                if listing_config.get(key) is not None
+            ]
+            if any(not isinstance(name, str) or not name.strip() for name in names):
+                raise ValueError("configured deployment names must be nonblank strings")
+            self._deployment_names = tuple(names) if names else None
+
+    def get_model_list_info(self) -> dict[str, Any]:
+        """Configured names are not an account deployment enumeration."""
+        return listing_info(
+            "configured" if self._deployment_names is not None else "unsupported",
+            self._deployment_filters,
+        )
+
+    async def list_models(
+        self, *, filters: Mapping[str, object] | None = None
+    ) -> list[ModelInfo]:
+        """List configured customer aliases without requiring Azure management access."""
+        policy = self._deployment_filters if filters is None else ModelFilters.parse(filters)
+        if self._deployment_names is None:
+            raise ProviderUnavailableError(
+                "Azure deployment enumeration is unavailable. Configure deployments "
+                "or enter an exact deployment_name/default_model; no management login is required.",
+                provider=self.name,
+                retryable=False,
+            )
+        return [
+            ModelInfo(id=name, display_name=name, context_window=0, max_output_tokens=0)
+            for name in policy.select(list(self._deployment_names))
+        ]
+
+
 def _create_azure_provider(
     base_class: type,
     *,
@@ -376,7 +435,7 @@ def _create_azure_provider(
     allowing us to defer the inheritance until OpenAIProvider is actually available.
     """
 
-    class _AzureOpenAIProvider(base_class):  # type: ignore[valid-type,misc]
+    class _AzureOpenAIProvider(_ConfiguredDeploymentListing, base_class):  # type: ignore[valid-type,misc]
         """Azure-specific wrapper around the OpenAI provider implementation."""
 
         name = "azure-openai"
@@ -396,6 +455,7 @@ def _create_azure_provider(
             add_cost=None,
         ):
             """Initialize Azure OpenAI provider."""
+            self._init_deployment_listing(config)
             # Store for lazy client creation
             self._base_url = base_url
             self._token_provider = token_provider
@@ -495,13 +555,6 @@ def _create_azure_provider(
         def get_info(self) -> ProviderInfo:
             """Get provider metadata."""
             return _get_azure_provider_info()
-
-        async def list_models(self) -> list[ModelInfo]:
-            """List available Azure OpenAI models.
-
-            Returns empty list since Azure deployments are customer-specific.
-            """
-            return []
 
         def _compute_attempt_cost(self, response: Any) -> Any:
             """Price original vendor usage, before public normalization or summing."""
@@ -662,17 +715,19 @@ def _get_azure_provider_info() -> ProviderInfo:
     )
 
 
-class AzureOpenAIProvider:
-    """Azure OpenAI provider - requires OpenAI provider module at runtime.
+class AzureOpenAIProvider(_ConfiguredDeploymentListing):
+    """Public setup and configured-catalog interface, without runtime credentials.
 
-    This class provides static metadata via get_info() for discovery purposes,
-    but requires the OpenAI provider module to be installed for actual use.
-    The real implementation is created dynamically in mount() to handle
-    the runtime dependency properly.
+    Metadata and local listing work without the OpenAI provider installed.
+    This object does not implement inference or own account resources. Use
+    mount() for the dynamically created runtime provider and its cleanup.
     """
 
     name = "azure-openai"
     api_label = "Azure OpenAI"
+
+    def __init__(self, config: dict[str, Any] | None = None) -> None:
+        self._init_deployment_listing(config)
 
     @staticmethod
     def get_decision_info():

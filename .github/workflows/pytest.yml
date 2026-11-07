@@ -43,3 +43,6 @@ jobs:
           tests/test_cache_boundaries.py tests/test_cost_callback_ordering.py tests/test_attempt_cost.py
           tests/test_decisions.py tests/test_decision_hook.py tests/test_unknown_config_keys.py
           tests/test_wait_policy.py tests/test_close.py tests/test_decision_mount_rollback.py
+          tests/test_model_listing.py
+          tests/test_public_setup_listing.py
+          tests/test_listing_attempt_cost.py
