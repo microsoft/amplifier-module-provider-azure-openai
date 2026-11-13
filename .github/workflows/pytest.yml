@@ -46,3 +46,4 @@ jobs:
           tests/test_model_listing.py
           tests/test_public_setup_listing.py
           tests/test_listing_attempt_cost.py
+          tests/test_media_support.py

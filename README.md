@@ -116,6 +116,42 @@ wins. Globs are case-insensitive and OS-independent; returned names are unchange
 Zero ModelInfo limits mean unknown; no capability is inferred from a deployment
 name. Explicit inference selections and authentication remain unchanged.
 
+### Session media compatibility
+
+`get_media_request_support(*, model, request_options=None)` is available on both
+the setup object and mounted runtime provider. It returns version 1 with
+`positions: []`: **no Azure deployment image position is qualified on this
+route yet**, including user attachments and tool-result images. The PNG/JPEG
+MIME list describes the media contract, not an image-support claim.
+
+Azure deployment aliases, even `gpt-4o` or another public model's name, do not
+establish the actual deployed model or supported wire format. Configuration and
+request-option metadata cannot opt into vision. This override deliberately does
+not inherit the OpenAI provider's public-model support declaration.
+
+A compatible host's session-media adapter must freeze explicit
+`[Image unavailable: ...; no pixels supplied]` text at the original user/tool
+position **before** budgeting/counting, preserving text order and tool-call
+identity. It must not relocate pixels to a synthetic user message, change the
+selected deployment, or interpret a serialized ref dictionary as pixels.
+The support method alone does not prepare requests or retrofit older hosts.
+
+Azure continues to use its pre-existing OpenAI-provider runtime dependency for
+transport, counting, retries and diagnostic copies. SDK retries remain disabled
+(`max_retries=0`); provider-owned retries must revalidate the exact private
+projection and effective options immediately before each actual attempt. Media
+activation is held until the host's media-v1 adapter and that base provider's
+validation/diagnostic safeguards are accepted together. A support lookup or
+offline text-fallback test is not proof of vision, native counting, retry guards
+or pixel-free diagnostics for arbitrary legacy inputs.
+
+The optional `tests/test_media_projection_integration.py` runs against an
+explicitly selected Foundation media-v1 test installation (including its media
+extra); it skips when that API is absent. Foundation is not an Azure runtime
+dependency. These synthetic fixtures remove inference credentials and fence
+real sockets, exercising original-position fallback through the real OpenAI SDK
+with an in-memory HTTP transport. They do not perform live Azure inference.
+
 ## Features
 
 - **Azure OpenAI Service Integration**: Connect to your Azure-hosted OpenAI deployments

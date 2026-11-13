@@ -366,7 +366,7 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
 
 
 class _ConfiguredDeploymentListing:
-    """Shared local catalog for public setup and mounted runtime instances.
+    """Shared local catalog/support facts for setup and runtime instances.
 
     This layer never resolves an account, loads the OpenAI provider, or creates
     a transport. Keep the recommendation policy identical at both public seams.
@@ -400,6 +400,30 @@ class _ConfiguredDeploymentListing:
             "configured" if self._deployment_names is not None else "unsupported",
             self._deployment_filters,
         )
+
+    def get_media_request_support(
+        self, *, model: str, request_options: Mapping[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """No Azure deployment has qualified image positions on this route yet.
+
+        A deployment alias, even one spelled like a public OpenAI model, is
+        not evidence about the deployed model or its supported wire format.
+        Do not inherit the OpenAI base's public-model support declaration.
+        The host's media projector uses this result to freeze unavailable
+        text at the original image position BEFORE budgeting/counting.
+
+        This is a support fact, not permission to resolve pixels. Neither
+        caller options nor configured deployment metadata can enable vision.
+        """
+        return {
+            "v": 1,
+            "positions": [],
+            "mime_types": ["image/png", "image/jpeg"],
+            "reason": (
+                "Azure deployment image support is unqualified on this route; "
+                "no pixels supplied"
+            ),
+        }
 
     async def list_models(
         self, *, filters: Mapping[str, object] | None = None
