@@ -295,6 +295,33 @@ async def test_protected_sdk_transport_policy_rejects_before_send(media, unsafe)
 
 
 @pytest.mark.asyncio
+async def test_media_enabled_dynamic_azure_token_callback_refuses_before_use(media):
+    """Auth callbacks may hide post-witness requests; no token is acquired."""
+    module, store, _ = media
+    cap = module.SessionMediaCapability(store, enabled=True)
+    req = ChatRequest(model="Customer-Blue", messages=[Message(role="user", content="text")])
+    p = make_provider(cap)
+    calls, token_calls = [], []
+    client = sdk(p, lambda r: calls.append(r) or httpx.Response(200, json=response()))
+
+    async def token():
+        token_calls.append(True)
+        return "must-not-be-acquired"
+
+    # Match the supported Azure factory's AsyncOpenAI(api_key=callable) path.
+    client.api_key = ""
+    client._api_key_provider = token
+    prepared = await cap.prepare_request(req, provider_identity=identity(p), model="Customer-Blue", request_options={}, purpose="count", execution_scope="root")
+    try:
+        with pytest.raises(InvalidRequestError):
+            await p.complete(prepared.request)
+        assert calls == [] and token_calls == []
+    finally:
+        prepared.release()
+        await p.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("change", ["key", "client", "wire_model"])
 @pytest.mark.parametrize("when", ["after_budget", "request_hook"])
 async def test_azure_actual_connection_drift_before_send_refuses(media, change, when):

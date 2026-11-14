@@ -141,7 +141,14 @@ transport, counting, retries and diagnostic copies. SDK retries remain disabled
 (`max_retries=0`); provider-owned retries must revalidate the exact private
 projection and effective options immediately before each actual attempt. HTTP
 transport is nonredirecting: a redirect must not add a physical request
-outside that per-attempt witness. Authentication/token refresh remains unchanged.
+outside that per-attempt witness. The existing authentication configuration
+is preserved, but **media-enabled dynamic authentication is not yet qualified**:
+the guarded base refuses SDK API-key/token providers and HTTP authentication
+callbacks before private count/send, including text-only unavailable projections.
+These callbacks can introduce refresh/retry requests after a witness. Static
+API-key transports are the qualified offline integration path; no automatic
+account/authentication switch is made. This is not a claim that Azure Entra or
+managed identity cannot support images.
 Media activation is held until the host's media-v1 adapter and that base provider's
 validation/diagnostic safeguards are accepted together. A support lookup or
 offline text-fallback test is not proof of vision, native counting, retry guards

@@ -129,9 +129,6 @@ async def test_unavailable_before_budget_preserves_position_and_exact_sdk_input(
         budget_input = provider._budget_params(private)["input"]
         # Azure cannot advertise the public OpenAI native counter on a custom endpoint.
         assert provider._provider_count_available() is False
-        budget = provider.request_budget(private, context_estimate=100, request_options={})
-        assert budget is None or budget.get("measurement", {}).get("kind") != "provider_count"
-
         def handler(request):
             body = json.loads(request.content)
             bodies.append(body)
@@ -151,6 +148,10 @@ async def test_unavailable_before_budget_preserves_position_and_exact_sdk_input(
             base_url="https://azure.invalid/openai/v1/", api_key="fixture-only", max_retries=0,
             http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         )
+        # Install the actual test connection BEFORE fitting it. Replacing the
+        # SDK client after budget is correctly refused by the media base.
+        budget = provider.request_budget(private, context_estimate=100, request_options={})
+        assert budget is None or budget.get("measurement", {}).get("kind") != "provider_count"
         assert cap.validate(private, purpose="transport", request_options={}) == {"valid": True}
         await provider.complete(private)
         assert len(bodies) == 1
