@@ -24,7 +24,7 @@ from amplifier_core import ModelInfo
 from amplifier_core import ModuleCoordinator
 from amplifier_core import ProviderInfo
 from amplifier_core.llm_errors import ProviderUnavailableError
-from openai import AsyncOpenAI, Timeout
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient, Timeout
 
 from ._cost import compute_cost
 from ._model_listing import ModelFilters, listing_info
@@ -366,7 +366,7 @@ async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = 
 
 
 class _ConfiguredDeploymentListing:
-    """Shared local catalog for public setup and mounted runtime instances.
+    """Shared local catalog/support facts for setup and runtime instances.
 
     This layer never resolves an account, loads the OpenAI provider, or creates
     a transport. Keep the recommendation policy identical at both public seams.
@@ -400,6 +400,30 @@ class _ConfiguredDeploymentListing:
             "configured" if self._deployment_names is not None else "unsupported",
             self._deployment_filters,
         )
+
+    def get_media_request_support(
+        self, *, model: str, request_options: Mapping[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """No Azure deployment has qualified image positions on this route yet.
+
+        A deployment alias, even one spelled like a public OpenAI model, is
+        not evidence about the deployed model or its supported wire format.
+        Do not inherit the OpenAI base's public-model support declaration.
+        The host's media projector uses this result to freeze unavailable
+        text at the original image position BEFORE budgeting/counting.
+
+        This is a support fact, not permission to resolve pixels. Neither
+        caller options nor configured deployment metadata can enable vision.
+        """
+        return {
+            "v": 1,
+            "positions": [],
+            "mime_types": ["image/png", "image/jpeg"],
+            "reason": (
+                "Azure deployment image support is unqualified on this route; "
+                "no pixels supplied"
+            ),
+        }
 
     async def list_models(
         self, *, filters: Mapping[str, object] | None = None
@@ -544,6 +568,10 @@ def _create_azure_provider(
                     # Azure managed identity authentication.
                     api_key=self._api_key or self._token_provider,
                     max_retries=0,  # Amplifier manages retries via retry_with_backoff
+                    # A redirect is another physical request outside the
+                    # provider's per-attempt media/connection witness. Match
+                    # the base provider's protected transport policy.
+                    http_client=DefaultAsyncHttpxClient(follow_redirects=False),
                 )
             return self._azure_client
 
