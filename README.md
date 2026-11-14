@@ -139,8 +139,10 @@ The support method alone does not prepare requests or retrofit older hosts.
 Azure continues to use its pre-existing OpenAI-provider runtime dependency for
 transport, counting, retries and diagnostic copies. SDK retries remain disabled
 (`max_retries=0`); provider-owned retries must revalidate the exact private
-projection and effective options immediately before each actual attempt. Media
-activation is held until the host's media-v1 adapter and that base provider's
+projection and effective options immediately before each actual attempt. HTTP
+transport is nonredirecting: a redirect must not add a physical request
+outside that per-attempt witness. Authentication/token refresh remains unchanged.
+Media activation is held until the host's media-v1 adapter and that base provider's
 validation/diagnostic safeguards are accepted together. A support lookup or
 offline text-fallback test is not proof of vision, native counting, retry guards
 or pixel-free diagnostics for arbitrary legacy inputs.
@@ -151,6 +153,14 @@ extra); it skips when that API is absent. Foundation is not an Azure runtime
 dependency. These synthetic fixtures remove inference credentials and fence
 real sockets, exercising original-position fallback through the real OpenAI SDK
 with an in-memory HTTP transport. They do not perform live Azure inference.
+
+`tests/test_media_inherited.py` additionally requires an explicitly selected
+OpenAI media-base candidate. It exercises automatic validation, unavailable
+native count/compaction, SSE completion, owned retry/revocation, unknown-send
+fences and diagnostic-copy isolation through Azure's actual subclass. Its strict
+regressions are qualification gates, not assertions that any chosen candidate
+already passes them. Legacy inline-image diagnostic fixtures qualify omission
+only, not real Azure image support or permission to hydrate unqualified refs.
 
 ## Features
 

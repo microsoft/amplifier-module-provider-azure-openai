@@ -24,7 +24,7 @@ from amplifier_core import ModelInfo
 from amplifier_core import ModuleCoordinator
 from amplifier_core import ProviderInfo
 from amplifier_core.llm_errors import ProviderUnavailableError
-from openai import AsyncOpenAI, Timeout
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient, Timeout
 
 from ._cost import compute_cost
 from ._model_listing import ModelFilters, listing_info
@@ -568,6 +568,10 @@ def _create_azure_provider(
                     # Azure managed identity authentication.
                     api_key=self._api_key or self._token_provider,
                     max_retries=0,  # Amplifier manages retries via retry_with_backoff
+                    # A redirect is another physical request outside the
+                    # provider's per-attempt media/connection witness. Match
+                    # the base provider's protected transport policy.
+                    http_client=DefaultAsyncHttpxClient(follow_redirects=False),
                 )
             return self._azure_client
 
