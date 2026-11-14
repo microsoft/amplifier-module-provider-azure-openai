@@ -86,6 +86,12 @@ Wire reference: [Microsoft Decision in Foundry](https://learn.microsoft.com/en-u
 
 This module enables Amplifier to use Azure OpenAI Service deployments for language model reasoning via the Responses API. Requests are routed through your Azure endpoint with Azure-specific authentication and deployment configuration.
 
+The minimum OpenAI Python SDK is **2.8.1**, matching this module's maintained
+development floor and providing the public `DefaultAsyncHttpxClient` used for
+nonredirecting transport. SDK 1.x is no longer a declared installation target.
+This floor covers setup/discovery imports and the Azure client factory; optional
+inherited provider features may require a newer SDK and their own qualification.
+
 ### Deployment listing
 
 For setup and Settings consumers, the publicly exported
