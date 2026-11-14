@@ -295,6 +295,47 @@ async def test_protected_sdk_transport_policy_rejects_before_send(media, unsafe)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["prepare_url", "headers", "http_auth", "resource_post", "raw_create", "key_none", "key_number", "key_callable", "key_empty"])
+async def test_static_dispatch_guard_rejects_late_azure_overrides(media, change):
+    """Late SDK hooks cannot do work after an otherwise valid private fit."""
+    module, store, _ = media
+    cap = module.SessionMediaCapability(store, enabled=True)
+    req = ChatRequest(model="Customer-Blue", messages=[Message(role="user", content="text")])
+    p = make_provider(cap)
+    calls, callbacks = [], []
+    client = sdk(p, lambda r: calls.append(r) or httpx.Response(200, json=response()))
+    prepared = await cap.prepare_request(req, provider_identity=identity(p), model="Customer-Blue", request_options={}, purpose="count", execution_scope="root")
+
+    def forbidden(*args, **kwargs):
+        callbacks.append(True)
+        raise AssertionError("unqualified late dispatch hook executed")
+
+    try:
+        p.request_budget(prepared.request, context_estimate=10)
+        if change == "prepare_url":
+            client._prepare_url = forbidden
+        elif change == "headers":
+            client._build_headers = forbidden
+        elif change == "http_auth":
+            client._client._build_request_auth = forbidden
+        elif change == "resource_post":
+            client.responses._post = forbidden
+        elif change == "raw_create":
+            client.responses.with_raw_response.create = forbidden
+        else:
+            client.api_key = {
+                "key_none": None, "key_number": 42,
+                "key_callable": forbidden, "key_empty": "",
+            }[change]
+        with pytest.raises(InvalidRequestError):
+            await p.complete(prepared.request)
+        assert calls == [] and callbacks == []
+    finally:
+        prepared.release()
+        await p.close()
+
+
+@pytest.mark.asyncio
 async def test_media_enabled_dynamic_azure_token_callback_refuses_before_use(media):
     """Auth callbacks may hide post-witness requests; no token is acquired."""
     module, store, _ = media
