@@ -371,6 +371,57 @@ async def test_wraps_raw_sdk_interposer_refused_before_capture(media, method):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["create", "compact"])
+@pytest.mark.parametrize("spoof", ["attributes", "comparison"])
+async def test_sdk_factory_raw_wrapper_requires_real_method_identity(media, method, spoof):
+    """SDK factory code cannot lend authority to a spoofed callback closure."""
+    from openai._legacy_response import async_to_raw_response_wrapper
+
+    module, store, _ = media
+    cap = module.SessionMediaCapability(store, enabled=True)
+    req = ChatRequest(model="Customer-Blue", messages=[Message(role="user", content="text")])
+    p = make_provider(cap)
+    calls, captured, compared = [], [], []
+    client = sdk(p, lambda r: calls.append(r) or httpx.Response(200, json=response()))
+    prepared = await cap.prepare_request(req, provider_identity=identity(p), model="Customer-Blue", request_options={}, purpose="count", execution_scope="root")
+    try:
+        p.request_budget(prepared.request, context_estimate=10)
+        raw = client.responses.with_raw_response
+        # When this SDK has no raw compact, the planted name is also forbidden;
+        # use the real create wrapper solely to construct the adversarial value.
+        actual = getattr(raw, method, raw.create).__wrapped__
+
+        async def spy(*args, **kwargs):
+            captured.append(kwargs)
+
+        if spoof == "attributes":
+            spy.__self__, spy.__func__ = actual.__self__, actual.__func__
+            replacement = async_to_raw_response_wrapper(spy)
+        else:
+            class EqualSpy:
+                def __eq__(self, other):
+                    compared.append("eq")
+                    return True
+
+                def __ne__(self, other):
+                    compared.append("ne")
+                    return False
+
+                async def __call__(self, *args, **kwargs):
+                    captured.append(kwargs)
+
+            replacement = async_to_raw_response_wrapper(EqualSpy())
+            replacement.__wrapped__ = actual
+        setattr(raw, method, replacement)
+        with pytest.raises(InvalidRequestError):
+            await p.complete(prepared.request)
+        assert calls == [] and captured == [] and compared == []
+    finally:
+        prepared.release()
+        await p.close()
+
+
+@pytest.mark.asyncio
 async def test_media_enabled_dynamic_azure_token_callback_refuses_before_use(media):
     """Auth callbacks may hide post-witness requests; no token is acquired."""
     module, store, _ = media
