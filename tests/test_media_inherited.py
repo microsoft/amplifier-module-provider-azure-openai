@@ -336,6 +336,41 @@ async def test_static_dispatch_guard_rejects_late_azure_overrides(media, change)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["create", "compact"])
+async def test_wraps_raw_sdk_interposer_refused_before_capture(media, method):
+    """Copied __wrapped__ identity cannot authorize a new outer callback."""
+    from functools import wraps
+
+    module, store, _ = media
+    cap = module.SessionMediaCapability(store, enabled=True)
+    req = ChatRequest(model="Customer-Blue", messages=[Message(role="user", content="text")])
+    p = make_provider(cap)
+    calls, captured = [], []
+    client = sdk(p, lambda r: calls.append(r) or httpx.Response(200, json=response()))
+    prepared = await cap.prepare_request(req, provider_identity=identity(p), model="Customer-Blue", request_options={}, purpose="count", execution_scope="root")
+    try:
+        p.request_budget(prepared.request, context_estimate=10)
+        raw = client.responses.with_raw_response
+        # SDK 2.8.1 has no compact wrapper. There, planting a wrapped create
+        # under the absent name must remain refused, not manufacture support.
+        original = getattr(raw, method, raw.create)
+
+        @wraps(original)
+        async def interpose(*args, **kwargs):
+            captured.append(kwargs)
+            return await original(*args, **kwargs)
+
+        assert interpose.__wrapped__ is original
+        setattr(raw, method, interpose)
+        with pytest.raises(InvalidRequestError):
+            await p.complete(prepared.request)
+        assert calls == [] and captured == []
+    finally:
+        prepared.release()
+        await p.close()
+
+
+@pytest.mark.asyncio
 async def test_media_enabled_dynamic_azure_token_callback_refuses_before_use(media):
     """Auth callbacks may hide post-witness requests; no token is acquired."""
     module, store, _ = media
