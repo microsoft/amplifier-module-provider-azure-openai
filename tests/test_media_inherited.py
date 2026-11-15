@@ -200,6 +200,187 @@ async def test_factory_transport_copy_keeps_azure_pool_owner(media, monkeypatch,
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("cap_enabled", [False, True])
+@pytest.mark.parametrize("route", ["normal", "raw", "stream"])
+async def test_factory_cookie_view_keeps_private_account_and_legacy_semantics(media, monkeypatch, cap_enabled, route):
+    """Real Azure factory; response cookies are private only on the cap path."""
+    import importlib
+
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    module, store, _ = media
+    cap = module.SessionMediaCapability(store, enabled=True) if cap_enabled else None
+    p = make_provider(cap, use_streaming=route == "stream",
+                      extra_request_params={"tools": [{"type": "computer"}]} if route == "raw" else {})
+    client = p.client
+    http = client._client
+    transport, writes, packets = http._transport, [], []
+    pool = transport._pool
+    core = importlib.import_module(type(pool).__module__.split(".")[0])
+    http.cookies.set("selected", "account-A")
+    prepared = None
+    reply = response()
+    if route == "stream":
+        body = "".join("data: " + json.dumps(event) + "\n\n" for event in [
+            {"type": "response.created", "response": reply},
+            {"type": "response.completed", "response": reply},
+        ]).encode()
+    else:
+        body = json.dumps(reply).encode()
+    content_type = b"text/event-stream" if route == "stream" else b"application/json"
+
+    class Stream(core.AsyncMockStream):
+        async def write(self, buffer, timeout=None):
+            writes.append(buffer)
+
+    class Backend(core.AsyncMockBackend):
+        async def connect_tcp(self, *args, **kwargs):
+            packets.append(True)
+            return Stream([b"HTTP/1.1 200 OK\r\nContent-Type: " + content_type
+                + b"\r\nSet-Cookie: route=server-cookie; Path=/\r\nConnection: close\r\nContent-Length: "
+                + str(len(body)).encode() + b"\r\n\r\n" + body])
+
+    pool._network_backend = Backend([])
+    try:
+        for turn in range(2):
+            req = ChatRequest(model="Customer-Blue", messages=[Message(role="user", content=f"cookie fixture {turn}")])
+            before = req.model_dump()
+            if cap_enabled:
+                prepared = await cap.prepare_request(req, provider_identity=identity(p), model="Customer-Blue", request_options={}, purpose="count", execution_scope="root")
+            private = prepared.request if prepared else req
+            budget = p.request_budget(private, context_estimate=10)
+            assert budget is None or budget.get("measurement", {}).get("kind") != "provider_count"
+            await p.complete(private)
+            assert req.model_dump() == before
+            if prepared:
+                prepared.release()
+                prepared = None
+            assert http.cookies.get("selected") == "account-A"
+            assert http.cookies.get("route") == (None if cap_enabled else "server-cookie")
+            assert not http.is_closed and transport._pool is pool
+        # Azure does not count remotely. These are two completed fixture sends.
+        assert len(packets) == 2
+        text = b"".join(writes).decode()
+        assert text.count("POST /openai/v1/responses") == 2
+        assert text.count("selected=account-A") == 2
+        # Legacy text retains normal HTTP cookie behavior. Private requests
+        # must never adopt a response cookie on the next candidate/attempt.
+        assert ("route=server-cookie" in text) is (not cap_enabled)
+        assert p.client is client and http._transport is transport
+    finally:
+        if prepared:
+            prepared.release()
+        await p.close()
+    assert client.is_closed() and http.is_closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cap_enabled", [False, True])
+@pytest.mark.parametrize("strict", [False, True])
+async def test_internal_count_copy_pins_azure_selected_policy_without_native_count(media, monkeypatch, cap_enabled, strict):
+    """Inspect count-copy mechanics only; Azure advertises no native counter."""
+    import importlib
+    from amplifier_module_provider_openai import _media
+
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    module, store, _ = media
+    cap = module.SessionMediaCapability(store, enabled=True) if cap_enabled else None
+    req = ChatRequest(model="Customer-Blue", messages=[Message(role="user", content="copy policy fixture")])
+    p = make_provider(cap)
+    client = p.client
+    http = client._client
+    transport = http._transport
+    pool, closed = transport._pool, []
+    core = importlib.import_module(type(pool).__module__.split(".")[0])
+
+    class Stream(core.AsyncMockStream):
+        async def aclose(self):
+            closed.append(True)
+            await super().aclose()
+
+    class Backend(core.AsyncMockBackend):
+        async def connect_tcp(self, *args, **kwargs):
+            return Stream([b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}"])
+
+    pool._network_backend = Backend([])
+    client.organization = client.project = None
+    client._custom_headers = {"x-selected": "original"}
+    client._custom_query = {"selected": "original"}
+    client._strict_response_validation = strict
+    http.cookies.set("selected", "account-A")
+    prepared, token = None, None
+    try:
+        # Establish one real pooled keep-alive connection through a controlled
+        # low-level backend. Flags alone cannot prove the transport is unclosed.
+        await http.get("https://azure.invalid/pool-owner-fixture")
+        assert len(pool.connections) == 1 and closed == []
+        connection = pool.connections[0]
+        if cap_enabled:
+            prepared = await cap.prepare_request(req, provider_identity=identity(p), model="Customer-Blue", request_options={}, purpose="count", execution_scope="root")
+        private = prepared.request if prepared else req
+        scope = _media.Scope(p, private, {})
+        token = _media.CURRENT.set(scope)
+        monkeypatch.setenv("OPENAI_ORG_ID", "ambient-wrong-org")
+        monkeypatch.setenv("OPENAI_PROJECT_ID", "ambient-wrong-project")
+        monkeypatch.setenv("OPENAI_CUSTOM_HEADERS", "x-selected: ambient")
+        copy_client = _media.late_bound_client(client, purpose="count", timeout=30)
+        assert copy_client is not client and copy_client.max_retries == 0
+        assert copy_client.api_key == client.api_key == "fixture-only"
+        assert copy_client.organization is None and copy_client.project is None
+        assert copy_client._custom_headers == {"x-selected": "original"}
+        assert copy_client._custom_query == {"selected": "original"}
+        assert copy_client._strict_response_validation is strict
+        assert copy_client._client is not http
+        assert copy_client._client._transport is transport
+        assert copy_client._client.cookies is not http.cookies
+        copy_client._client.cookies.set("route", "server-cookie")
+        assert http.cookies.get("route") is None
+        # Both SDK close and HTTP context exit are explicitly non-owning.
+        await copy_client.close()
+        await copy_client._client.__aexit__(None, None, None)
+        assert not client.is_closed() and not http.is_closed
+        assert pool.connections == [connection] and closed == []
+        assert p._provider_count_available() is False
+    finally:
+        if token is not None:
+            _media.CURRENT.reset(token)
+        if prepared:
+            prepared.release()
+        await p.close()
+    assert client.is_closed()
+    assert closed == [True]  # Only the actual provider owner closes the stream.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["cookie", "strict"])
+async def test_explicit_azure_cookie_or_response_policy_drift_refuses_after_fit(media, change):
+    module, store, _ = media
+    cap = module.SessionMediaCapability(store, enabled=True)
+    req = ChatRequest(model="Customer-Blue", messages=[Message(role="user", content="policy fixture")])
+    p = make_provider(cap)
+    calls = []
+    client = sdk(p, lambda r: calls.append(r) or httpx.Response(200, json=response()))
+    client._strict_response_validation = True
+    client._client.cookies.set("selected", "account-A")
+    prepared = None
+    try:
+        prepared = await cap.prepare_request(req, provider_identity=identity(p), model="Customer-Blue", request_options={}, purpose="count", execution_scope="root")
+        p.request_budget(prepared.request, context_estimate=10)
+        if change == "cookie":
+            client._client.cookies.set("selected", "account-B")
+        else:
+            client._strict_response_validation = False
+        with pytest.raises(InvalidRequestError):
+            await p.complete(prepared.request)
+        assert calls == []
+    finally:
+        if prepared:
+            prepared.release()
+        await p.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("change", ["transport", "pool", "retries", "closed"])
 async def test_private_azure_transport_boundary_refuses_after_fit(media, change):
     """Pool/transport observers and silent retries cannot borrow a fitted request."""
