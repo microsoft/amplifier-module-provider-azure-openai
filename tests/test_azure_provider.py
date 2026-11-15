@@ -187,7 +187,11 @@ def test_azure_client_sdk_retries_disabled(mock_openai_provider_cls):
         base_url="https://example.openai.azure.com/openai/v1/",
         api_key="test-key",
     )
-    assert provider.client.max_retries == 0
+    try:
+        assert provider.client.max_retries == 0
+        assert provider.client._client.follow_redirects is False
+    finally:
+        asyncio.run(provider.close())
 
 
 def test_token_provider_callable_passed_as_api_key(mock_openai_provider_cls):
@@ -201,7 +205,10 @@ def test_token_provider_callable_passed_as_api_key(mock_openai_provider_cls):
     async def fake_token_provider() -> str:
         return "test-token"
 
-    with patch("amplifier_module_provider_azure_openai.AsyncOpenAI") as MockAsyncOpenAI:
+    with (
+        patch("amplifier_module_provider_azure_openai.AsyncOpenAI") as MockAsyncOpenAI,
+        patch("amplifier_module_provider_azure_openai.DefaultAsyncHttpxClient") as MockHttpClient,
+    ):
         MockAsyncOpenAI.return_value = MagicMock()
         provider = _create_azure_provider(
             mock_openai_provider_cls,
@@ -215,7 +222,9 @@ def test_token_provider_callable_passed_as_api_key(mock_openai_provider_cls):
             api_key=fake_token_provider,
             timeout=ANY,
             max_retries=0,
+            http_client=MockHttpClient.return_value,
         )
+        MockHttpClient.assert_called_once_with(follow_redirects=False)
 
 
 class TestAzureRetryConfigAlignment:

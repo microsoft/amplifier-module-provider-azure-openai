@@ -86,6 +86,12 @@ Wire reference: [Microsoft Decision in Foundry](https://learn.microsoft.com/en-u
 
 This module enables Amplifier to use Azure OpenAI Service deployments for language model reasoning via the Responses API. Requests are routed through your Azure endpoint with Azure-specific authentication and deployment configuration.
 
+The minimum OpenAI Python SDK is **2.8.1**, matching this module's maintained
+development floor and providing the public `DefaultAsyncHttpxClient` used for
+nonredirecting transport. SDK 1.x is no longer a declared installation target.
+This floor covers setup/discovery imports and the Azure client factory; optional
+inherited provider features may require a newer SDK and their own qualification.
+
 ### Deployment listing
 
 For setup and Settings consumers, the publicly exported
@@ -115,6 +121,59 @@ wins. Globs are case-insensitive and OS-independent; returned names are unchange
 `hide_dated` only hides a YYYY-MM-DD suffix when its undated alias is selected.
 Zero ModelInfo limits mean unknown; no capability is inferred from a deployment
 name. Explicit inference selections and authentication remain unchanged.
+
+### Session media compatibility
+
+`get_media_request_support(*, model, request_options=None)` is available on both
+the setup object and mounted runtime provider. It returns version 1 with
+`positions: []`: **no Azure deployment image position is qualified on this
+route yet**, including user attachments and tool-result images. The PNG/JPEG
+MIME list describes the media contract, not an image-support claim.
+
+Azure deployment aliases, even `gpt-4o` or another public model's name, do not
+establish the actual deployed model or supported wire format. Configuration and
+request-option metadata cannot opt into vision. This override deliberately does
+not inherit the OpenAI provider's public-model support declaration.
+
+A compatible host's session-media adapter must freeze explicit
+`[Image unavailable: ...; no pixels supplied]` text at the original user/tool
+position **before** budgeting/counting, preserving text order and tool-call
+identity. It must not relocate pixels to a synthetic user message, change the
+selected deployment, or interpret a serialized ref dictionary as pixels.
+The support method alone does not prepare requests or retrofit older hosts.
+
+Azure continues to use its pre-existing OpenAI-provider runtime dependency for
+transport, counting, retries and diagnostic copies. SDK retries remain disabled
+(`max_retries=0`); provider-owned retries must revalidate the exact private
+projection and effective options immediately before each actual attempt. HTTP
+transport is nonredirecting: a redirect must not add a physical request
+outside that per-attempt witness. The existing authentication configuration
+is preserved, but **media-enabled dynamic authentication is not yet qualified**:
+the guarded base refuses SDK API-key/token providers and HTTP authentication
+callbacks before private count/send, including text-only unavailable projections.
+These callbacks can introduce refresh/retry requests after a witness. Static
+API-key transports are the qualified offline integration path; no automatic
+account/authentication switch is made. This is not a claim that Azure Entra or
+managed identity cannot support images.
+Media activation is held until the host's media-v1 adapter and that base provider's
+validation/diagnostic safeguards are accepted together. A support lookup or
+offline text-fallback test is not proof of vision, native counting, retry guards
+or pixel-free diagnostics for arbitrary legacy inputs.
+
+The optional `tests/test_media_projection_integration.py` runs against an
+explicitly selected Foundation media-v1 test installation (including its media
+extra); it skips when that API is absent. Foundation is not an Azure runtime
+dependency. These synthetic fixtures remove inference credentials and fence
+real sockets, exercising original-position fallback through the real OpenAI SDK
+with an in-memory HTTP transport. They do not perform live Azure inference.
+
+`tests/test_media_inherited.py` additionally requires an explicitly selected
+OpenAI media-base candidate. It exercises automatic validation, unavailable
+native count/compaction, SSE completion, owned retry/revocation, unknown-send
+fences and diagnostic-copy isolation through Azure's actual subclass. Its strict
+regressions are qualification gates, not assertions that any chosen candidate
+already passes them. Legacy inline-image diagnostic fixtures qualify omission
+only, not real Azure image support or permission to hydrate unqualified refs.
 
 ## Features
 
