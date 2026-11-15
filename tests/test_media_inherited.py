@@ -135,6 +135,205 @@ async def test_real_cap_wrapper_fallback_budget_send_stream(media, role, stream,
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("cap_enabled", [False, True])
+@pytest.mark.parametrize("raw_route", [False, True])
+async def test_factory_transport_copy_keeps_azure_pool_owner(media, monkeypatch, cap_enabled, raw_route):
+    """Real factory/SDK/HTTP pool, with a local network backend and no sockets.
+
+    A bare computer declaration selects raw parsing; no computer call is
+    returned/executed and this does not qualify Azure native-tool support.
+    """
+    import importlib
+
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    module, store, _ = media
+    cap = module.SessionMediaCapability(store, enabled=True) if cap_enabled else None
+    req = ChatRequest(model="Customer-Blue", messages=[Message(role="user", content="ordinary fixture text")])
+    before = req.model_dump()
+    p = make_provider(cap, extra_request_params={"tools": [{"type": "computer"}]} if raw_route else {})
+    client = p.client  # Actual Azure production factory, not injected SDK mock.
+    http, writes, packets = client._client, [], []
+    transport = http._transport
+    pool = transport._pool
+    core = importlib.import_module(type(pool).__module__.split(".")[0])
+    data = json.dumps(response()).encode()
+
+    class Stream(core.AsyncMockStream):
+        async def write(self, buffer, timeout=None):
+            writes.append(buffer)
+
+    class Backend(core.AsyncMockBackend):
+        async def connect_tcp(self, *args, **kwargs):
+            packets.append(True)
+            return Stream([b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                b"Connection: close\r\nContent-Length: " + str(len(data)).encode()
+                + b"\r\n\r\n" + data])
+
+    # Control only the low-level network backend; retain real, unwrapped SDK,
+    # HTTP transport and pool execution methods.
+    pool._network_backend = Backend([])
+    prepared = None
+    try:
+        if cap_enabled:
+            prepared = await cap.prepare_request(req, provider_identity=identity(p), model="Customer-Blue", request_options={}, purpose="count", execution_scope="root")
+        private = prepared.request if prepared else req
+        budget = p.request_budget(private, context_estimate=10)
+        assert budget is None or budget.get("measurement", {}).get("kind") != "provider_count"
+        fitted_input = p._budget_params(private)["input"]
+        await p.complete(private)
+        assert p.client is client and http._transport is transport and transport._pool is pool
+        assert not http.is_closed and not client.is_closed()
+        assert len(packets) == 1  # Azure still has no native count operation.
+        written = b"".join(writes)
+        assert b"/openai/v1/responses" in written and b"Customer-Blue" in written
+        wire = json.loads(written.split(b"\r\n\r\n", 1)[1])
+        assert wire["model"] == "Customer-Blue" and wire["input"] == fitted_input
+        assert any(tool.get("type") == "computer" for tool in wire.get("tools", [])) is raw_route
+        assert req.model_dump() == before and client.max_retries == 0
+        assert p.supports_native_compaction() is False
+    finally:
+        if prepared:
+            prepared.release()
+        await p.close()
+    assert http.is_closed and client.is_closed()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["transport", "pool", "retries", "closed"])
+async def test_private_azure_transport_boundary_refuses_after_fit(media, change):
+    """Pool/transport observers and silent retries cannot borrow a fitted request."""
+    module, store, _ = media
+    cap = module.SessionMediaCapability(store, enabled=True)
+    req = ChatRequest(model="Customer-Blue", messages=[Message(role="user", content="text")])
+    p = make_provider(cap)
+    calls, observed = [], []
+    client = sdk(p, lambda r: calls.append(r) or httpx.Response(200, json=response()))
+    # Use the real standard HTTP pool for pool/inner-retry cases, with no send.
+    transport = httpx.AsyncHTTPTransport(retries=0)
+    original = client._client._transport
+    client._client._transport = transport
+    prepared = None
+
+    async def observer(*args, **kwargs):
+        observed.append(True)
+        raise AssertionError("unqualified private transport observer executed")
+
+    try:
+        prepared = await cap.prepare_request(req, provider_identity=identity(p), model="Customer-Blue", request_options={}, purpose="count", execution_scope="root")
+        p.request_budget(prepared.request, context_estimate=10)
+        if change == "transport":
+            transport.handle_async_request = observer
+        elif change == "pool":
+            transport._pool.handle_async_request = observer
+        elif change == "retries":
+            transport._pool._retries = 1
+        else:
+            await client.close()
+        with pytest.raises(InvalidRequestError):
+            await p.complete(prepared.request)
+        assert calls == [] and observed == []
+    finally:
+        if prepared:
+            prepared.release()
+        await p.close()
+        await transport.aclose()
+        await original.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["transport", "pool"])
+async def test_private_azure_capability_callback_cannot_reopen_transport(media, monkeypatch, change):
+    module, store, _ = media
+    cap = module.SessionMediaCapability(store, enabled=True)
+    req = ChatRequest(model="Customer-Blue", messages=[Message(role="user", content="text")])
+    p = make_provider(cap)
+    calls, observed = [], []
+    client = sdk(p, lambda r: calls.append(r) or httpx.Response(200, json=response()))
+    transport, previous = httpx.AsyncHTTPTransport(), client._client._transport
+    client._client._transport = transport
+    prepared = None
+    validate = cap.validate
+
+    async def observer(*args, **kwargs):
+        observed.append(True)
+        raise AssertionError("cap callback injected transport observer")
+
+    def mutate(value, **kwargs):
+        result = validate(value, **kwargs)
+        if change == "transport":
+            transport.handle_async_request = observer
+        else:
+            transport._pool.handle_async_request = observer
+        return result
+
+    try:
+        prepared = await cap.prepare_request(req, provider_identity=identity(p), model="Customer-Blue", request_options={}, purpose="count", execution_scope="root")
+        p.request_budget(prepared.request, context_estimate=10)
+        monkeypatch.setattr(cap, "validate", mutate)
+        with pytest.raises(InvalidRequestError):
+            await p.complete(prepared.request)
+        assert calls == [] and observed == []
+    finally:
+        if prepared:
+            prepared.release()
+        await p.close()
+        await transport.aclose()
+        await previous.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("route", ["normal", "raw", "stream"])
+@pytest.mark.parametrize("change", ["key", "transport"])
+async def test_private_azure_copy_revalidates_after_sdk_platform_await(media, monkeypatch, route, change):
+    """Mutate the owning connection at the SDK's real first-await cut."""
+    import asyncio
+    import openai._base_client as sdk_base
+
+    module, store, _ = media
+    cap = module.SessionMediaCapability(store, enabled=True)
+    req = ChatRequest(model="Customer-Blue", messages=[Message(role="user", content="text")])
+    p = make_provider(cap, use_streaming=route == "stream",
+                      extra_request_params={"tools": [{"type": "computer"}]} if route == "raw" else {})
+    calls, observed, cuts = [], [], []
+    client = sdk(p, lambda r: calls.append(r) or httpx.Response(200, json=response()))
+    prepared = None
+    asyncify = sdk_base.asyncify
+
+    async def observer(*args, **kwargs):
+        observed.append(True)
+        raise AssertionError("late transport observer received request")
+
+    def scheduling_cut(function):
+        real = asyncify(function)
+
+        async def after_platform(*args, **kwargs):
+            result = await real(*args, **kwargs)
+            await asyncio.sleep(0)
+            cuts.append(True)
+            if change == "key":
+                client.api_key = "changed-fixture-key"
+            else:
+                client._client._transport.handle_async_request = observer
+            return result
+
+        return after_platform
+
+    try:
+        prepared = await cap.prepare_request(req, provider_identity=identity(p), model="Customer-Blue", request_options={}, purpose="count", execution_scope="root")
+        p.request_budget(prepared.request, context_estimate=10)
+        monkeypatch.setattr(sdk_base, "asyncify", scheduling_cut)
+        with pytest.raises(InvalidRequestError):
+            await p.complete(prepared.request)
+        assert cuts and calls == [] and observed == []
+        assert not client.is_closed()
+    finally:
+        if prepared:
+            prepared.release()
+        await p.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["budget", "complete", "compact"])
 async def test_real_cap_rejects_missing_private_association(media, operation):
     module, store, _ = media
