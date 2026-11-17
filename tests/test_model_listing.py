@@ -67,7 +67,42 @@ async def test_unsupported_does_not_invent_inherited_default_or_request_auth():
 
 
 @pytest.mark.asyncio
-async def test_filter_snapshot_replace_metadata_and_hidden_inference():
+async def test_gpt62_names_are_deployments_not_public_model_recommendations():
+    # A customer can name any deployment after a public model. Neither the name
+    # nor a newer similarly named deployment proves its underlying model.
+    deployments = [
+        "gpt-6-astra",
+        "gpt-6.1-sol",
+        "gpt-6.2-astra",
+        "gpt-6.2-sol",
+        "production-chat",
+    ]
+    p = make({"deployments": deployments, "default_model": "gpt-6.1-sol"})
+    models = await p.list_models()
+    assert ids(models) == sorted(deployments)
+    assert ids(await p.list_models(filters={})) == sorted(deployments)
+    assert p.default_model == "gpt-6.1-sol"
+    assert all(
+        model.context_window == 0
+        and model.max_output_tokens == 0
+        and not model.capabilities
+        for model in models
+    )
+    assert p._azure_client is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "deployment",
+    [
+        "hidden-exact-deployment",
+        "gpt-6-astra",
+        "gpt-6.1-sol",
+        "gpt-6.2-astra",
+        "gpt-6.2-sol",
+    ],
+)
+async def test_filter_snapshot_replace_metadata_and_hidden_inference(deployment):
     cfg = {"include": ["prod*"], "exclude": []}
     p = make(
         {"deployments": ["prod", "dev"], "model_filters": cfg, "use_streaming": False}
@@ -87,7 +122,7 @@ async def test_filter_snapshot_replace_metadata_and_hidden_inference():
     def handler(request):
         calls.append(request)
         body = json.loads(request.content)
-        assert body["model"] == "hidden-exact-deployment"
+        assert body["model"] == deployment
         assert body["max_output_tokens"] == 100
         assert request.headers["authorization"] == "Bearer test-key"
         return httpx.Response(
@@ -111,7 +146,7 @@ async def test_filter_snapshot_replace_metadata_and_hidden_inference():
     try:
         await p.complete(
             ChatRequest(
-                model="hidden-exact-deployment",
+                model=deployment,
                 max_output_tokens=100,
                 messages=[Message(role="user", content="test")],
             )
