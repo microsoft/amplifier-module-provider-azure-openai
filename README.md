@@ -116,6 +116,21 @@ wins. Globs are case-insensitive and OS-independent; returned names are unchange
 Zero ModelInfo limits mean unknown; no capability is inferred from a deployment
 name. Explicit inference selections and authentication remain unchanged.
 
+### GPT-6.2 Astra and Sol
+
+GPT-6.2 request compatibility comes from the installed `provider-openai`
+module; install its corresponding GPT-6.2 update alongside this adapter.
+Continue selecting your exact Azure deployment name. Public OpenAI model
+recommendations never hide or replace configured Azure deployments, including
+deployments named `gpt-6-astra` or `gpt-6.1-sol`.
+
+The [Azure model catalog](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure)
+lists GPT-6.2 Astra and Sol, but that does not establish a deployment, region
+capacity or quota for your account. This adapter uses Responses for tool calls
+and does not infer public-API pricing for either model; without a verified Azure
+rate, cost remains unknown. Existing deployment defaults and credentials are
+unchanged.
+
 ## Features
 
 - **Azure OpenAI Service Integration**: Connect to your Azure-hosted OpenAI deployments

@@ -136,3 +136,23 @@ def test_vendor_dict_and_object_usage_have_same_cost():
     assert p._compute_attempt_cost(raw) == Decimal(".004")
     raw["usage"]["prompt_tokens_details"]["cached_tokens"] = None
     assert p._compute_attempt_cost(raw) == Decimal(".00355")
+
+
+@pytest.mark.parametrize("model", ["gpt-6.2-astra", "gpt-6.2-sol"])
+@pytest.mark.parametrize("deployment", ["Standard", "PTU"])
+def test_gpt62_does_not_inherit_public_openai_prices(model, deployment):
+    # The public API's new prices do not establish Azure PAYG prices, even
+    # when the response's reported model matches a documented public ID.
+    p = provider([], deployment=deployment)
+    raw = response(model=model)
+    # Make this priceable by the public provider: Flex and missing cache-write
+    # evidence could return unknown before the forbidden pricing call.
+    raw.service_tier = "default"
+    raw.usage.input_tokens_details.cache_write_tokens = 0
+    with patch(
+        "amplifier_module_provider_openai.compute_cost",
+        side_effect=AssertionError("Public OpenAI pricing must not run"),
+    ):
+        out = p._convert_to_chat_response(raw)
+        assert p._compute_attempt_cost(raw) is None
+    assert out.usage.cost_usd is None
